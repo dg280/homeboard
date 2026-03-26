@@ -342,9 +342,11 @@ export default function Home() {
                       <span style={{ fontSize: '.6rem', fontWeight: 700, borderRadius: 6, padding: '2px 8px', background: cfg.pill, color: cfg.color }}>{cfg.lbl}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <div style={{ textAlign: 'center', minWidth: 48 }}>
+                      <div style={{ textAlign: 'center', minWidth: 54 }}>
+                        <div style={{ fontSize: '.45rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>ressenti</div>
                         <div style={{ fontSize: '1.4rem', fontWeight: 700, lineHeight: 1, color: cfg.color }}>{Math.round(da.apparent_temperature_max?.[idx] ?? da.temperature_2m_max[idx])}°</div>
                         <div style={{ fontSize: '.85rem', fontWeight: 600, color: '#38bdf8' }}>{Math.round(da.apparent_temperature_min?.[idx] ?? da.temperature_2m_min[idx])}°</div>
+                        <div style={{ fontSize: '.5rem', color: '#475569', marginTop: 2 }}>réel {Math.round(da.temperature_2m_min[idx])}°/{Math.round(da.temperature_2m_max[idx])}°</div>
                         <div style={{ fontSize: '1.4rem', marginTop: 3 }}>{WMO[da.weathercode[idx]] || '🌡'}</div>
                       </div>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
