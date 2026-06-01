@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/didier-brain/bin/brain doctor --quiet"
+          }
+        ]
+      }
+    ]
+  }
+}

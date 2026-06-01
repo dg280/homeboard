@@ -3,3 +3,9 @@ node_modules/
 .env.local
 .env*.local
 .vercel
+
+# brain satellite
+.claude/skills/
+.DS_Store
+*.swp
+*.swo

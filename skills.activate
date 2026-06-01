@@ -1,0 +1,6 @@
+# skills.activate — skills core a activer dans homeboard.
+# Un nom par ligne (= dossier dans <core>/.claude/skills/).
+
+next-actions
+organize-projects
+satellite-pulse
