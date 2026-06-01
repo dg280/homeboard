@@ -154,13 +154,15 @@ export default function Home() {
     if (!c) return
     const base = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&wind_speed_unit=ms&timezone=Europe%2FParis&forecast_days=7`
     try {
-      const [ra, re, qa] = await Promise.all([
-        fetch(base + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,apparent_temperature_max,apparent_temperature_min,uv_index_max&hourly=temperature_2m,precipitation,windspeed_10m&models=meteofrance_seamless').then(r => r.json()),
+      const [ra, re, qa, uvr] = await Promise.all([
+        fetch(base + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,apparent_temperature_max,apparent_temperature_min&hourly=temperature_2m,precipitation,windspeed_10m&models=meteofrance_seamless').then(r => r.json()),
         fetch(base + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&hourly=temperature_2m,precipitation_probability,precipitation,windspeed_10m&models=ecmwf_ifs025').then(r => r.json()),
         fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}&hourly=european_aqi,pm2_5,nitrogen_dioxide,ozone&timezone=Europe%2FParis&forecast_days=2`).then(r => r.json()),
+        // UV : le modèle Météo-France ne fournit pas uv_index_max → appel séparé sur le modèle par défaut (CAMS/ECMWF)
+        fetch(base + '&daily=uv_index_max').then(r => r.json()),
       ])
       if (cityRef.current !== slug) return
-      setDa(ra.daily); setDe(re.daily)
+      setDa({ ...ra.daily, uv_index_max: uvr.daily?.uv_index_max }); setDe(re.daily)
       setAromeH(ra.hourly); setEcmwfH(re.hourly)
       setAqH(qa.hourly ?? null)
     } catch { /* silently fail */ }
@@ -405,7 +407,7 @@ export default function Home() {
                 }
                 const ws = src.windspeed_10m_max[i]
                 const wsStr = ws != null ? Math.round(ws) + 'm/s' : '--'
-                const uvv = useArome ? da.uv_index_max?.[i] ?? null : null
+                const uvv = da.uv_index_max?.[i] ?? null
                 const uvU = uvLabel(uvv)
                 const tag = useArome ? '<span style="font-size:.5rem;color:#38bdf8">AROME</span>' : '<span style="font-size:.5rem;color:#a78bfa">ECMWF</span>'
                 const label = DAYS[dt.getDay()] + ' ' + dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
