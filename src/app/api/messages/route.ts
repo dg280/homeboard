@@ -7,6 +7,7 @@ const TG_API = `https://api.telegram.org/bot${TG_TOKEN}`
 interface TgUser { first_name: string; last_name?: string; username?: string }
 interface TgMessage {
   message_id: number; date: number; text?: string; caption?: string
+  chat?: { id: number }
   from?: TgUser
   photo?: { file_id: string }[]
   audio?: { file_id: string }
@@ -37,12 +38,11 @@ export async function GET() {
     const data = await res.json()
     if (!data.ok) return NextResponse.json([])
 
-    // Filtrer les messages du bon chat
+    // Filtrer les messages du SEUL chat autorisé (CHAT_ID est garanti non vide ici, cf. garde ci-dessus)
     const msgs: TgMessage[] = data.result
       .map((u: { message?: TgMessage }) => u.message)
       .filter((m: TgMessage | undefined): m is TgMessage =>
-        m != null && String(m.message_id) !== '' &&
-        (CHAT_ID === '' || true) // accepter tous les chats si pas de filtre
+        m != null && String(m.chat?.id) === CHAT_ID
       )
       .reverse()
       .slice(0, 10)

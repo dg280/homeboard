@@ -184,13 +184,41 @@ export default function Home() {
     } catch { /* */ }
   }, [])
 
-  useEffect(() => { loadForecast(place) }, [place, loadForecast])
+  // Charger la météo au changement de ville + auto-refresh toutes les 10 min
+  // (écran mural : sinon le matin on voit les prévisions de la veille)
+  useEffect(() => {
+    loadForecast(place)
+    const iv = setInterval(() => loadForecast(place), 600000)
+    return () => clearInterval(iv)
+  }, [place, loadForecast])
 
   useEffect(() => {
     loadMessages()
     const iv = setInterval(loadMessages, 30000)
     return () => clearInterval(iv)
   }, [loadMessages])
+
+  // Wake Lock : empêcher la mise en veille de l'écran (usage mural)
+  // Réacquis quand l'onglet redevient visible (le verrou saute en arrière-plan)
+  useEffect(() => {
+    let lock: WakeLockSentinel | null = null
+    let cancelled = false
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<WakeLockSentinel> } }
+    if (!nav.wakeLock) return
+    const acquire = async () => {
+      try {
+        lock = await nav.wakeLock!.request('screen')
+      } catch { /* refusé (onglet caché, batterie faible…) */ }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible' && !cancelled) acquire() }
+    acquire()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
+      lock?.release().catch(() => {})
+    }
+  }, [])
 
   // Recherche de ville (geocoding Open-Meteo, sans clé) — debounce 350ms
   useEffect(() => {
