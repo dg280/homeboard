@@ -137,10 +137,55 @@ interface GeoResult {
   country?: string; admin1?: string
 }
 type Place = { key: string; lat: number; lon: number; label: string }
+// Un "proche" = une personne aimée + la ville où elle vit
+type Proche = { id: string; name: string; lat: number; lon: number; city: string }
+
+// ── Persistance & partage ─────────────────────────────────────────────────────
+const LS_PROCHES = 'homeboard.proches'
+const LS_SELECTED = 'homeboard.selected'
+
+let idCounter = 0
+function newId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  idCounter += 1
+  return `p${idCounter}-${Date.now()}`
+}
+
+// Seed initial déterministe (depuis les villes historiques) — pas de hasard au 1er rendu (SSR-safe)
+function seedProches(): Proche[] {
+  return Object.entries(CITIES).map(([slug, v]) => ({ id: `seed-${slug}`, name: v.label, lat: v.lat, lon: v.lon, city: v.label }))
+}
+
+// Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
+function encodeBoard(proches: Proche[], selId: string): string {
+  const idx = Math.max(0, proches.findIndex(p => p.id === selId))
+  const payload = { p: proches.map(p => [p.name, p.lat, p.lon, p.city]), s: idx }
+  const bytes = new TextEncoder().encode(JSON.stringify(payload))
+  let bin = ''
+  bytes.forEach(b => { bin += String.fromCharCode(b) })
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+function decodeBoard(str: string): { proches: Proche[]; selectedId: string } | null {
+  try {
+    const b64 = str.replace(/-/g, '+').replace(/_/g, '/')
+    const bin = atob(b64)
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
+    const payload = JSON.parse(new TextDecoder().decode(bytes))
+    if (!Array.isArray(payload.p) || payload.p.length === 0) return null
+    const proches: Proche[] = payload.p.map((t: [string, number, number, string]) =>
+      ({ id: newId(), name: t[0], lat: t[1], lon: t[2], city: t[3] }))
+    const selectedId = proches[payload.s]?.id ?? proches[0].id
+    return { proches, selectedId }
+  } catch { return null }
+}
 
 // ── Composant principal ──────────────────────────────────────────────────────
 export default function Home() {
-  const [place, setPlace] = useState<Place>({ key: 'gujan-mestras', ...CITIES['gujan-mestras'] })
+  const [proches, setProches] = useState<Proche[]>(seedProches)
+  const [selectedId, setSelectedId] = useState<string>('seed-gujan-mestras')
+  const [pending, setPending] = useState<Proche | null>(null) // ville choisie en attente d'un prénom
+  const [addName, setAddName] = useState('')
+  const [shareMsg, setShareMsg] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -152,9 +197,11 @@ export default function Home() {
   const [aqH, setAqH] = useState<AqHourly | null>(null)
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [messages, setMessages] = useState<TgMessage[]>([])
-  const placeRef = useRef(place.key)
 
-  useEffect(() => { placeRef.current = place.key }, [place])
+  const selected = proches.find(p => p.id === selectedId) ?? proches[0] ?? null
+  const placeRef = useRef(selected?.id ?? '')
+
+  useEffect(() => { placeRef.current = selected?.id ?? '' }, [selected])
 
   const loadForecast = useCallback(async (p: Place) => {
     setLoading(true)
@@ -184,13 +231,16 @@ export default function Home() {
     } catch { /* */ }
   }, [])
 
-  // Charger la météo au changement de ville + auto-refresh toutes les 10 min
+  // Charger la météo au changement de proche + auto-refresh toutes les 10 min
   // (écran mural : sinon le matin on voit les prévisions de la veille)
   useEffect(() => {
-    loadForecast(place)
-    const iv = setInterval(() => loadForecast(place), 600000)
+    if (!selected) { setLoading(false); return }
+    const p: Place = { key: selected.id, lat: selected.lat, lon: selected.lon, label: selected.name }
+    loadForecast(p)
+    const iv = setInterval(() => loadForecast(p), 600000)
     return () => clearInterval(iv)
-  }, [place, loadForecast])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, selected?.lat, selected?.lon, loadForecast])
 
   useEffect(() => {
     loadMessages()
@@ -235,21 +285,73 @@ export default function Home() {
     return () => clearTimeout(t)
   }, [query])
 
+  // Choisir une ville dans la recherche → ouvre le formulaire "prénom"
   function pickResult(r: GeoResult) {
-    const label = r.admin1 && r.admin1 !== r.name ? `${r.name} (${r.admin1})` : r.name
-    setPlace({ key: `${r.latitude},${r.longitude},${label}`, lat: r.latitude, lon: r.longitude, label })
+    const city = r.admin1 && r.admin1 !== r.name ? `${r.name} (${r.admin1})` : r.name
+    setPending({ id: newId(), name: '', lat: r.latitude, lon: r.longitude, city })
+    setAddName(r.name)
     setQuery(''); setResults([])
   }
+  function confirmAdd() {
+    if (!pending) return
+    const name = addName.trim() || pending.city
+    const proche = { ...pending, name }
+    setProches(prev => [...prev, proche])
+    setSelectedId(proche.id)
+    setPending(null); setAddName('')
+  }
+  function removeProche(id: string) {
+    setProches(prev => {
+      const next = prev.filter(p => p.id !== id)
+      if (id === selectedId) setSelectedId(next[0]?.id ?? '')
+      return next
+    })
+  }
+  async function shareBoard() {
+    if (proches.length === 0) return
+    const url = `${window.location.origin}${window.location.pathname}#b=${encodeBoard(proches, selectedId)}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setShareMsg('Lien copié ✓')
+    } catch {
+      window.location.hash = `b=${encodeBoard(proches, selectedId)}`
+      setShareMsg('Lien dans la barre d\'adresse')
+    }
+    setTimeout(() => setShareMsg(''), 2500)
+  }
 
-  // Restaurer / sauvegarder la ville dans le hash URL
+  // Hydratation au montage : lien partagé (#b=...) prioritaire, sinon localStorage, sinon seed
+  const hydrated = useRef(false)
   useEffect(() => {
-    const hash = decodeURIComponent(window.location.hash.slice(1))
-    if (!hash) return
-    if (CITIES[hash]) { setPlace({ key: hash, ...CITIES[hash] }); return }
-    const m = hash.match(/^(-?[\d.]+),(-?[\d.]+),(.+)$/)
-    if (m) setPlace({ key: hash, lat: parseFloat(m[1]), lon: parseFloat(m[2]), label: m[3] })
+    const hash = window.location.hash.slice(1)
+    const shared = hash.startsWith('b=') ? decodeBoard(hash.slice(2)) : null
+    if (shared) {
+      setProches(shared.proches); setSelectedId(shared.selectedId)
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    } else {
+      try {
+        const raw = localStorage.getItem(LS_PROCHES)
+        if (raw) {
+          const saved: Proche[] = JSON.parse(raw)
+          if (Array.isArray(saved) && saved.length > 0) {
+            setProches(saved)
+            const sel = localStorage.getItem(LS_SELECTED)
+            setSelectedId(sel && saved.some(p => p.id === sel) ? sel : saved[0].id)
+          }
+        }
+      } catch { /* localStorage indisponible */ }
+    }
+    hydrated.current = true
   }, [])
-  useEffect(() => { window.location.hash = encodeURIComponent(place.key) }, [place])
+
+  // Persistance (après hydratation, pour ne pas écraser avec le seed)
+  useEffect(() => {
+    if (!hydrated.current) return
+    try {
+      localStorage.setItem(LS_PROCHES, JSON.stringify(proches))
+      localStorage.setItem(LS_SELECTED, selectedId)
+    } catch { /* localStorage indisponible */ }
+  }, [proches, selectedId])
 
   // AQI helpers
   const nowH = new Date().getHours()
@@ -307,8 +409,6 @@ export default function Home() {
     setModal({ title: `${dateStr} — détail`, html: rows + outfitHtml })
   }
 
-  const c = place
-
   return (
     <>
       <style>{`
@@ -343,9 +443,24 @@ export default function Home() {
         .search-item.muted:hover{background:#1e293b;color:#64748b}
         .search-country{font-size:.65rem;color:#64748b}
         .search-item:hover .search-country{color:#0f172a}
-        .city-sel{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px}
-        .city-btn{background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:6px 14px;font-size:.72rem;cursor:pointer;transition:.2s}
+        .city-sel{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:8px}
+        .city-btn{display:inline-flex;align-items:center;gap:6px;background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:6px 10px 6px 14px;font-size:.72rem;cursor:pointer;transition:.2s}
         .city-btn:hover,.city-btn.active{background:#38bdf8;color:#0f172a;font-weight:700;border-color:#38bdf8}
+        .city-btn .pc-city{font-size:.6rem;opacity:.7;font-weight:400}
+        .pc-del{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;font-size:.7rem;line-height:1;color:#64748b;background:rgba(148,163,184,.15)}
+        .city-btn.active .pc-del{color:#0f172a;background:rgba(15,23,42,.25)}
+        .pc-del:hover{background:#ef4444;color:#fff}
+        .board-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+        .board-act{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:5px 12px;font-size:.65rem;cursor:pointer;transition:.2s}
+        .board-act:hover{border-color:#38bdf8;color:#38bdf8}
+        .board-msg{font-size:.65rem;color:#4ade80}
+        .add-form{max-width:360px;margin:0 auto 10px;background:#1e293b;border:1px solid #38bdf8;border-radius:10px;padding:8px}
+        .add-form .city{font-size:.65rem;color:#94a3b8;margin:0 2px 6px}
+        .add-row{display:flex;gap:6px}
+        .add-input{flex:1;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:.8rem;outline:none}
+        .add-input:focus{border-color:#38bdf8}
+        .add-btn{background:#38bdf8;border:none;color:#0f172a;font-weight:700;border-radius:8px;padding:0 12px;font-size:.75rem;cursor:pointer}
+        .add-cancel{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:0 10px;font-size:.9rem;cursor:pointer}
         .msg-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:8px}
         .msg-author{font-size:.65rem;color:#38bdf8;font-weight:600;margin-bottom:4px}
         .msg-text{font-size:.85rem;color:#e2e8f0;line-height:1.4}
@@ -357,15 +472,15 @@ export default function Home() {
       `}</style>
 
       <h1>HOMEBOARD</h1>
-      <div className="sub">📍 {c.label}</div>
+      <div className="sub">📍 {selected ? (selected.name === selected.city ? selected.city : `${selected.name} · ${selected.city}`) : 'Aucun proche'}</div>
 
-      {/* Recherche de n'importe quelle ville */}
+      {/* Ajouter un proche : rechercher une ville */}
       <div className="search-wrap">
         <input
           className="search-input"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="🔍 Rechercher une ville..."
+          placeholder="🔍 Ajouter un proche : chercher sa ville..."
           autoComplete="off"
           spellCheck={false}
         />
@@ -382,13 +497,47 @@ export default function Home() {
         )}
       </div>
 
-      {/* Sélecteur de ville (favoris) */}
+      {/* Formulaire : prénom du proche pour la ville choisie */}
+      {pending && (
+        <div className="add-form">
+          <div className="city">📍 {pending.city}</div>
+          <div className="add-row">
+            <input
+              className="add-input"
+              value={addName}
+              onChange={e => setAddName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') { setPending(null); setAddName('') } }}
+              placeholder="Prénom (ex : Mamie)"
+              autoFocus
+            />
+            <button className="add-btn" onClick={confirmAdd}>Ajouter</button>
+            <button className="add-cancel" onClick={() => { setPending(null); setAddName('') }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mur des proches */}
       <div className="city-sel">
-        {Object.entries(CITIES).map(([slug, v]) => (
-          <button key={slug} className={`city-btn ${place.key === slug ? 'active' : ''}`} onClick={() => setPlace({ key: slug, ...v })}>
-            {v.label}
+        {proches.map(p => (
+          <button
+            key={p.id}
+            className={`city-btn ${selectedId === p.id ? 'active' : ''}`}
+            onClick={() => setSelectedId(p.id)}
+            title={p.city}
+          >
+            <span>{p.name}{p.name !== p.city && <span className="pc-city"> · {p.city}</span>}</span>
+            <span
+              className="pc-del"
+              role="button"
+              aria-label={`Retirer ${p.name}`}
+              onClick={e => { e.stopPropagation(); removeProche(p.id) }}
+            >✕</span>
           </button>
         ))}
+      </div>
+      <div className="board-bar">
+        {proches.length > 0 && <button className="board-act" onClick={shareBoard}>🔗 Partager ce tableau</button>}
+        {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
 
       {/* Messages importants */}
@@ -408,8 +557,10 @@ export default function Home() {
         </div>
       )}
 
-      {loading ? (
-        <div className="loader"><div className="spin" /><p style={{ color: '#64748b', fontSize: '.8rem' }}>Chargement météo {c.label}...</p></div>
+      {!selected ? (
+        <div className="loader"><p style={{ color: '#64748b', fontSize: '.85rem' }}>Aucun proche. Cherche une ville ci-dessus pour ajouter quelqu&apos;un. 👆</p></div>
+      ) : loading ? (
+        <div className="loader"><div className="spin" /><p style={{ color: '#64748b', fontSize: '.8rem' }}>Chargement météo {selected.name}...</p></div>
       ) : da && de ? (
         <>
           {/* Comment s'habiller */}
