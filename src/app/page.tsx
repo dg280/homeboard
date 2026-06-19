@@ -132,10 +132,18 @@ interface TgMessage {
   id: number; text?: string; from: string; date: number
   photo?: string; audio?: string; caption?: string
 }
+interface GeoResult {
+  id: number; name: string; latitude: number; longitude: number
+  country?: string; admin1?: string
+}
+type Place = { key: string; lat: number; lon: number; label: string }
 
 // ── Composant principal ──────────────────────────────────────────────────────
 export default function Home() {
-  const [city, setCity] = useState('gujan-mestras')
+  const [place, setPlace] = useState<Place>({ key: 'gujan-mestras', ...CITIES['gujan-mestras'] })
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<GeoResult[]>([])
+  const [searching, setSearching] = useState(false)
   const [loading, setLoading] = useState(true)
   const [da, setDa] = useState<DailyData | null>(null)
   const [de, setDe] = useState<DailyData | null>(null)
@@ -144,14 +152,13 @@ export default function Home() {
   const [aqH, setAqH] = useState<AqHourly | null>(null)
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [messages, setMessages] = useState<TgMessage[]>([])
-  const cityRef = useRef(city)
+  const placeRef = useRef(place.key)
 
-  useEffect(() => { cityRef.current = city }, [city])
+  useEffect(() => { placeRef.current = place.key }, [place])
 
-  const loadForecast = useCallback(async (slug: string) => {
+  const loadForecast = useCallback(async (p: Place) => {
     setLoading(true)
-    const c = CITIES[slug]
-    if (!c) return
+    const c = p
     const base = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&wind_speed_unit=ms&timezone=Europe%2FParis&forecast_days=7`
     try {
       const [ra, re, qa, uvr] = await Promise.all([
@@ -161,7 +168,7 @@ export default function Home() {
         // UV : le modèle Météo-France ne fournit pas uv_index_max → appel séparé sur le modèle par défaut (CAMS/ECMWF)
         fetch(base + '&daily=uv_index_max').then(r => r.json()),
       ])
-      if (cityRef.current !== slug) return
+      if (placeRef.current !== p.key) return
       setDa({ ...ra.daily, uv_index_max: uvr.daily?.uv_index_max }); setDe(re.daily)
       setAromeH(ra.hourly); setEcmwfH(re.hourly)
       setAqH(qa.hourly ?? null)
@@ -177,19 +184,44 @@ export default function Home() {
     } catch { /* */ }
   }, [])
 
+  useEffect(() => { loadForecast(place) }, [place, loadForecast])
+
   useEffect(() => {
-    loadForecast(city)
     loadMessages()
     const iv = setInterval(loadMessages, 30000)
     return () => clearInterval(iv)
-  }, [city, loadForecast, loadMessages])
+  }, [loadMessages])
 
-  // Sauvegarder la ville dans le hash URL
+  // Recherche de ville (geocoding Open-Meteo, sans clé) — debounce 350ms
   useEffect(() => {
-    const hash = window.location.hash.slice(1)
-    if (hash && CITIES[hash]) setCity(hash)
+    const q = query.trim()
+    if (q.length < 2) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=fr&format=json`).then(r => r.json())
+        setResults(Array.isArray(r.results) ? r.results : [])
+      } catch { setResults([]) }
+      setSearching(false)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [query])
+
+  function pickResult(r: GeoResult) {
+    const label = r.admin1 && r.admin1 !== r.name ? `${r.name} (${r.admin1})` : r.name
+    setPlace({ key: `${r.latitude},${r.longitude},${label}`, lat: r.latitude, lon: r.longitude, label })
+    setQuery(''); setResults([])
+  }
+
+  // Restaurer / sauvegarder la ville dans le hash URL
+  useEffect(() => {
+    const hash = decodeURIComponent(window.location.hash.slice(1))
+    if (!hash) return
+    if (CITIES[hash]) { setPlace({ key: hash, ...CITIES[hash] }); return }
+    const m = hash.match(/^(-?[\d.]+),(-?[\d.]+),(.+)$/)
+    if (m) setPlace({ key: hash, lat: parseFloat(m[1]), lon: parseFloat(m[2]), label: m[3] })
   }, [])
-  useEffect(() => { window.location.hash = city }, [city])
+  useEffect(() => { window.location.hash = encodeURIComponent(place.key) }, [place])
 
   // AQI helpers
   const nowH = new Date().getHours()
@@ -247,7 +279,7 @@ export default function Home() {
     setModal({ title: `${dateStr} — détail`, html: rows + outfitHtml })
   }
 
-  const c = CITIES[city]
+  const c = place
 
   return (
     <>
@@ -271,6 +303,18 @@ export default function Home() {
         .fc-day .rain{font-size:.75rem;font-weight:700;margin-top:5px}
         .fc-day .wind{font-size:.6rem;color:#64748b;margin-top:2px}
         footer{text-align:center;color:#475569;font-size:.65rem;margin-top:20px}
+        .search-wrap{position:relative;max-width:360px;margin:0 auto 12px}
+        .search-input{width:100%;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:10px;padding:10px 14px;font-size:.85rem;outline:none;transition:.2s}
+        .search-input:focus{border-color:#38bdf8}
+        .search-input::placeholder{color:#64748b}
+        .search-results{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#1e293b;border:1px solid #334155;border-radius:10px;overflow:hidden;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+        .search-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 14px;font-size:.8rem;color:#e2e8f0;cursor:pointer;border-top:1px solid #0f172a}
+        .search-item:first-child{border-top:none}
+        .search-item:hover{background:#38bdf8;color:#0f172a}
+        .search-item.muted{color:#64748b;cursor:default}
+        .search-item.muted:hover{background:#1e293b;color:#64748b}
+        .search-country{font-size:.65rem;color:#64748b}
+        .search-item:hover .search-country{color:#0f172a}
         .city-sel{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px}
         .city-btn{background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:6px 14px;font-size:.72rem;cursor:pointer;transition:.2s}
         .city-btn:hover,.city-btn.active{background:#38bdf8;color:#0f172a;font-weight:700;border-color:#38bdf8}
@@ -287,10 +331,33 @@ export default function Home() {
       <h1>HOMEBOARD</h1>
       <div className="sub">📍 {c.label}</div>
 
-      {/* Sélecteur de ville */}
+      {/* Recherche de n'importe quelle ville */}
+      <div className="search-wrap">
+        <input
+          className="search-input"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="🔍 Rechercher une ville..."
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {(results.length > 0 || (searching && query.trim().length >= 2)) && (
+          <div className="search-results">
+            {results.length === 0 && searching && <div className="search-item muted">Recherche…</div>}
+            {results.map(r => (
+              <div key={r.id} className="search-item" onClick={() => pickResult(r)}>
+                <span className="search-name">{r.name}{r.admin1 && r.admin1 !== r.name ? `, ${r.admin1}` : ''}</span>
+                {r.country && <span className="search-country">{r.country}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Sélecteur de ville (favoris) */}
       <div className="city-sel">
         {Object.entries(CITIES).map(([slug, v]) => (
-          <button key={slug} className={`city-btn ${city === slug ? 'active' : ''}`} onClick={() => setCity(slug)}>
+          <button key={slug} className={`city-btn ${place.key === slug ? 'active' : ''}`} onClick={() => setPlace({ key: slug, ...v })}>
             {v.label}
           </button>
         ))}
