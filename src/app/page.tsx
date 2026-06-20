@@ -143,6 +143,11 @@ type Proche = { id: string; name: string; lat: number; lon: number; city: string
 // ── Persistance & partage ─────────────────────────────────────────────────────
 const LS_PROCHES = 'homeboard.proches'
 const LS_SELECTED = 'homeboard.selected'
+const LS_LICENSE = 'homeboard.license'
+
+// Monétisation : gratuit = 3 proches, Premium (achat unique Gumroad) = illimité
+const FREE_MAX = 3
+const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
 
 let idCounter = 0
 function newId(): string {
@@ -197,6 +202,11 @@ export default function Home() {
   const [aqH, setAqH] = useState<AqHourly | null>(null)
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [messages, setMessages] = useState<TgMessage[]>([])
+  const [isPremium, setIsPremium] = useState(false)
+  const [paywall, setPaywall] = useState(false)
+  const [keyInput, setKeyInput] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [keyError, setKeyError] = useState('')
 
   const selected = proches.find(p => p.id === selectedId) ?? proches[0] ?? null
   const placeRef = useRef(selected?.id ?? '')
@@ -286,11 +296,37 @@ export default function Home() {
   }, [query])
 
   // Choisir une ville dans la recherche → ouvre le formulaire "prénom"
+  // Gate Premium : au-delà de FREE_MAX proches, on propose le déblocage
   function pickResult(r: GeoResult) {
+    if (!isPremium && proches.length >= FREE_MAX) {
+      setPaywall(true); setQuery(''); setResults([])
+      return
+    }
     const city = r.admin1 && r.admin1 !== r.name ? `${r.name} (${r.admin1})` : r.name
     setPending({ id: newId(), name: '', lat: r.latitude, lon: r.longitude, city })
     setAddName(r.name)
     setQuery(''); setResults([])
+  }
+
+  async function verifyKey() {
+    const key = keyInput.trim()
+    if (!key || verifying) return
+    setVerifying(true); setKeyError('')
+    try {
+      const res = await fetch('/api/license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      })
+      const data = await res.json()
+      if (data.valid) {
+        try { localStorage.setItem(LS_LICENSE, key) } catch { /* */ }
+        setIsPremium(true); setPaywall(false); setKeyInput('')
+      } else {
+        setKeyError(data.message || 'Clé invalide')
+      }
+    } catch { setKeyError('Vérification impossible, réessaie') }
+    setVerifying(false)
   }
   function confirmAdd() {
     if (!pending) return
@@ -341,6 +377,7 @@ export default function Home() {
         }
       } catch { /* localStorage indisponible */ }
     }
+    try { if (localStorage.getItem(LS_LICENSE)) setIsPremium(true) } catch { /* */ }
     hydrated.current = true
   }, [])
 
@@ -461,6 +498,16 @@ export default function Home() {
         .add-input:focus{border-color:#38bdf8}
         .add-btn{background:#38bdf8;border:none;color:#0f172a;font-weight:700;border-radius:8px;padding:0 12px;font-size:.75rem;cursor:pointer}
         .add-cancel{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:0 10px;font-size:.9rem;cursor:pointer}
+        .premium-badge{font-size:.6rem;font-weight:700;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);border-radius:20px;padding:3px 10px;letter-spacing:.5px}
+        .pw-buy{display:block;text-align:center;background:linear-gradient(135deg,#fbbf24,#f97316);color:#1a1006;font-weight:800;border:none;border-radius:10px;padding:12px;font-size:.9rem;cursor:pointer;text-decoration:none;margin-bottom:14px}
+        .pw-feat{display:flex;align-items:center;gap:8px;font-size:.8rem;color:#cbd5e1;margin:7px 0}
+        .pw-sep{display:flex;align-items:center;gap:8px;color:#475569;font-size:.6rem;text-transform:uppercase;letter-spacing:1px;margin:16px 0 10px}
+        .pw-sep::before,.pw-sep::after{content:"";flex:1;height:1px;background:#334155}
+        .pw-key{display:flex;gap:6px}
+        .pw-key input{flex:1;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:.8rem;outline:none}
+        .pw-key input:focus{border-color:#38bdf8}
+        .pw-key button{background:#1e293b;border:1px solid #38bdf8;color:#38bdf8;border-radius:8px;padding:0 14px;font-size:.78rem;font-weight:600;cursor:pointer}
+        .pw-err{color:#f87171;font-size:.72rem;margin-top:8px}
         .msg-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:8px}
         .msg-author{font-size:.65rem;color:#38bdf8;font-weight:600;margin-bottom:4px}
         .msg-text{font-size:.85rem;color:#e2e8f0;line-height:1.4}
@@ -537,6 +584,9 @@ export default function Home() {
       </div>
       <div className="board-bar">
         {proches.length > 0 && <button className="board-act" onClick={shareBoard}>🔗 Partager ce tableau</button>}
+        {isPremium
+          ? <span className="premium-badge">✨ Premium</span>
+          : <button className="board-act" onClick={() => setPaywall(true)}>✨ Passer en illimité</button>}
         {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
 
@@ -688,6 +738,38 @@ export default function Home() {
             <button onClick={() => setModal(null)} style={{ position: 'absolute', top: 10, right: 14, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             <h3 style={{ color: '#38bdf8', fontSize: '.85rem', letterSpacing: 1, marginBottom: 12 }}>{modal.title}</h3>
             <div style={{ fontSize: '.72rem' }} dangerouslySetInnerHTML={{ __html: modal.html }} />
+          </div>
+        </div>
+      )}
+
+      {/* Paywall Premium */}
+      {paywall && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 300, overflowY: 'auto', padding: 16 }} onClick={() => { setPaywall(false); setKeyError('') }}>
+          <div style={{ background: '#1e293b', borderRadius: 16, maxWidth: 380, margin: '6vh auto 0', padding: 22, position: 'relative', border: '1px solid #fbbf2455' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => { setPaywall(false); setKeyError('') }} style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            <h3 style={{ color: '#fbbf24', fontSize: '1rem', marginBottom: 4 }}>✨ Homeboard Premium</h3>
+            <p style={{ color: '#94a3b8', fontSize: '.78rem', marginBottom: 16 }}>Tes 3 premiers proches sont gratuits. Passe en illimité pour suivre toute la famille — paiement unique, à vie.</p>
+
+            <div className="pw-feat">👨‍👩‍👧‍👦 Proches <strong>illimités</strong></div>
+            <div className="pw-feat">🔗 Tableau partageable par lien</div>
+            <div className="pw-feat">💛 Tu soutiens un projet indé</div>
+
+            {GUMROAD_URL
+              ? <a className="pw-buy" href={GUMROAD_URL} target="_blank" rel="noopener noreferrer" style={{ marginTop: 16 }}>Débloquer — 19€ à vie</a>
+              : <div style={{ marginTop: 16, textAlign: 'center', color: '#64748b', fontSize: '.78rem', padding: '12px', border: '1px dashed #334155', borderRadius: 10 }}>Premium bientôt disponible 🔜</div>}
+
+            <div className="pw-sep">déjà acheté&nbsp;?</div>
+            <div className="pw-key">
+              <input
+                value={keyInput}
+                onChange={e => setKeyInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') verifyKey() }}
+                placeholder="Colle ta clé de licence"
+                autoComplete="off"
+              />
+              <button onClick={verifyKey} disabled={verifying}>{verifying ? '…' : 'Activer'}</button>
+            </div>
+            {keyError && <div className="pw-err">{keyError}</div>}
           </div>
         </div>
       )}
