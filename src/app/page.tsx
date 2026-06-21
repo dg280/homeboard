@@ -142,6 +142,7 @@ const LS_LICENSE = 'homeboard.license'
 const LS_SYNC = 'homeboard.sync'
 const LS_SYNCED_AT = 'homeboard.syncedAt'
 const LS_FEED = 'homeboard.feed'
+const LS_EVENT = 'homeboard.event'
 
 // Monétisation : mode don (Phase C). Pas de gate — soutien volontaire.
 const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
@@ -216,6 +217,14 @@ function todayISO(): string {
   const n = new Date()
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
 }
+// Jours avant une date 'YYYY-MM-DD' (négatif si passée), ou null si invalide
+function daysUntil(dateStr?: string): number | null {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+  const d = new Date(`${dateStr}T00:00:00`)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((d.getTime() - today.getTime()) / 86400000)
+}
 
 // ── Mur familial : accumulation des messages Telegram ────────────────────────
 // getUpdates n'expose que la fenêtre récente ; on accumule côté client pour
@@ -241,21 +250,24 @@ function stripMedia(m: TgMessage): TgMessage {
 
 // Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
 // Payload compact partagé par le lien (#b=) ET la sync Telegram. Photos exclues (trop lourdes).
-type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string; lc?: string }[]; s: number; u?: number }
+type FamilyEvent = { title: string; date: string } // date 'YYYY-MM-DD'
+type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string; lc?: string }[]; s: number; u?: number; ev?: { t: string; d: string } }
 
-function boardToPayload(proches: Proche[], selId: string): BoardPayload {
+function boardToPayload(proches: Proche[], selId: string, event: FamilyEvent | null): BoardPayload {
   const idx = Math.max(0, proches.findIndex(p => p.id === selId))
   return {
     p: proches.map(p => ({ n: p.name, la: p.lat, lo: p.lon, c: p.city, e: p.emoji, r: p.relation, b: p.birthday, t: p.phone, lc: p.lastContact })),
     s: idx,
+    ev: event ? { t: event.title, d: event.date } : undefined,
   }
 }
-function payloadToBoard(payload: BoardPayload | null): { proches: Proche[]; selectedId: string } | null {
+function payloadToBoard(payload: BoardPayload | null): { proches: Proche[]; selectedId: string; event: FamilyEvent | null } | null {
   if (!payload || !Array.isArray(payload.p) || payload.p.length === 0) return null
   const proches: Proche[] = payload.p.map(o =>
     ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t, lastContact: o.lc }))
   const selectedId = proches[payload.s]?.id ?? proches[0].id
-  return { proches, selectedId }
+  const event = payload.ev ? { title: payload.ev.t, date: payload.ev.d } : null
+  return { proches, selectedId, event }
 }
 // Réattache les photos locales (non synchronisées) en matchant ville+nom
 function mergePhotos(adopted: Proche[], local: Proche[]): Proche[] {
@@ -264,13 +276,13 @@ function mergePhotos(adopted: Proche[], local: Proche[]): Proche[] {
   return adopted.map(p => photos.has(key(p)) ? { ...p, photo: photos.get(key(p)) } : p)
 }
 
-function encodeBoard(proches: Proche[], selId: string): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(boardToPayload(proches, selId)))
+function encodeBoard(proches: Proche[], selId: string, event: FamilyEvent | null): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(boardToPayload(proches, selId, event)))
   let bin = ''
   bytes.forEach(b => { bin += String.fromCharCode(b) })
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
-function decodeBoard(str: string): { proches: Proche[]; selectedId: string } | null {
+function decodeBoard(str: string): { proches: Proche[]; selectedId: string; event: FamilyEvent | null } | null {
   try {
     const b64 = str.replace(/-/g, '+').replace(/_/g, '/')
     const bin = atob(b64)
@@ -307,6 +319,10 @@ export default function Home() {
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [feed, setFeed] = useState<TgMessage[]>([])
   const [showArchives, setShowArchives] = useState(false)
+  const [familyEvent, setFamilyEvent] = useState<FamilyEvent | null>(null)
+  const [eventForm, setEventForm] = useState(false)
+  const [evTitle, setEvTitle] = useState('')
+  const [evDate, setEvDate] = useState('')
   const [isPremium, setIsPremium] = useState(false)
   const [paywall, setPaywall] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -320,6 +336,7 @@ export default function Home() {
   // Refs pour la sync (évite les closures périmées dans les timers/effets)
   const prochesRef = useRef(proches); useEffect(() => { prochesRef.current = proches }, [proches])
   const selIdRef = useRef(selectedId); useEffect(() => { selIdRef.current = selectedId }, [selectedId])
+  const eventRef = useRef(familyEvent); useEffect(() => { eventRef.current = familyEvent }, [familyEvent])
   const syncedAtRef = useRef(0)
 
   useEffect(() => { placeRef.current = selected?.id ?? '' }, [selected])
@@ -477,6 +494,15 @@ export default function Home() {
   function markContacted(id: string) {
     setProches(prev => prev.map(p => p.id === id ? { ...p, lastContact: todayISO() } : p))
   }
+  function openEventForm() {
+    setEvTitle(familyEvent?.title || ''); setEvDate(familyEvent?.date || ''); setEventForm(true)
+  }
+  function saveEvent() {
+    const t = evTitle.trim()
+    if (!t || !evDate) return
+    setFamilyEvent({ title: t, date: evDate }); setEventForm(false)
+  }
+  function clearEvent() { setFamilyEvent(null); setEventForm(false) }
   function confirmAdd() {
     const common = {
       relation: addRelation.trim() || undefined,
@@ -529,12 +555,12 @@ export default function Home() {
   }
   async function shareBoard() {
     if (proches.length === 0) return
-    const url = `${window.location.origin}${window.location.pathname}#b=${encodeBoard(proches, selectedId)}`
+    const url = `${window.location.origin}${window.location.pathname}#b=${encodeBoard(proches, selectedId, familyEvent)}`
     try {
       await navigator.clipboard.writeText(url)
       setShareMsg('Lien copié ✓')
     } catch {
-      window.location.hash = `b=${encodeBoard(proches, selectedId)}`
+      window.location.hash = `b=${encodeBoard(proches, selectedId, familyEvent)}`
       setShareMsg('Lien dans la barre d\'adresse')
     }
     setTimeout(() => setShareMsg(''), 2500)
@@ -546,7 +572,7 @@ export default function Home() {
     const hash = window.location.hash.slice(1)
     const shared = hash.startsWith('b=') ? decodeBoard(hash.slice(2)) : null
     if (shared) {
-      setProches(shared.proches); setSelectedId(shared.selectedId)
+      setProches(shared.proches); setSelectedId(shared.selectedId); setFamilyEvent(shared.event)
       history.replaceState(null, '', window.location.pathname + window.location.search)
     } else {
       try {
@@ -569,6 +595,12 @@ export default function Home() {
         if (Array.isArray(saved)) setFeed(mergeFeed(saved, []))
       }
     } catch { /* */ }
+    if (!shared) {
+      try {
+        const rawEvent = localStorage.getItem(LS_EVENT)
+        if (rawEvent) setFamilyEvent(JSON.parse(rawEvent))
+      } catch { /* */ }
+    }
     hydrated.current = true
   }, [])
 
@@ -578,14 +610,16 @@ export default function Home() {
     try {
       localStorage.setItem(LS_PROCHES, JSON.stringify(proches))
       localStorage.setItem(LS_SELECTED, selectedId)
+      if (familyEvent) localStorage.setItem(LS_EVENT, JSON.stringify(familyEvent))
+      else localStorage.removeItem(LS_EVENT)
     } catch { /* localStorage indisponible */ }
-  }, [proches, selectedId])
+  }, [proches, selectedId, familyEvent])
 
   // ── Sync Telegram (gratuite) ────────────────────────────────────────────────
   const pushBoard = useCallback(async () => {
     setSyncState('saving')
     const u = Date.now()
-    const payload = { ...boardToPayload(prochesRef.current, selIdRef.current), u }
+    const payload = { ...boardToPayload(prochesRef.current, selIdRef.current, eventRef.current), u }
     try {
       const res = await fetch('/api/board', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -611,6 +645,7 @@ export default function Home() {
         if (parsed) {
           setProches(prev => mergePhotos(parsed.proches, prev))
           setSelectedId(parsed.selectedId)
+          setFamilyEvent(parsed.event)
           syncedAtRef.current = board.u
           try { localStorage.setItem(LS_SYNCED_AT, String(board.u)) } catch { /* */ }
         }
@@ -649,7 +684,7 @@ export default function Home() {
     if (!sync || !hydrated.current) return
     const t = setTimeout(() => pushBoard(), 1500)
     return () => clearTimeout(t)
-  }, [proches, selectedId, sync, pushBoard])
+  }, [proches, selectedId, familyEvent, sync, pushBoard])
 
   // AQI helpers
   const nowH = new Date().getHours()
@@ -752,6 +787,12 @@ export default function Home() {
         .board-act{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:5px 12px;font-size:.65rem;cursor:pointer;transition:.2s}
         .board-act:hover{border-color:#38bdf8;color:#38bdf8}
         .board-msg{font-size:.65rem;color:#4ade80}
+        .event-bar{display:flex;justify-content:center;margin-bottom:16px}
+        .event-pill{background:linear-gradient(135deg,#1e1b4b,#312e81);border:1px solid #6366f1;color:#e0e7ff;border-radius:20px;padding:8px 18px;font-size:.82rem;cursor:pointer}
+        .event-pill strong{color:#fff}
+        .event-pill:hover{border-color:#a5b4fc}
+        .event-add{background:none;border:1px dashed #334155;color:#64748b;border-radius:20px;padding:6px 14px;font-size:.68rem;cursor:pointer}
+        .event-add:hover{border-color:#6366f1;color:#a5b4fc}
         .add-form{max-width:380px;margin:0 auto 10px;background:#1e293b;border:1px solid #38bdf8;border-radius:12px;padding:14px}
         .add-form .city{font-size:.7rem;color:#94a3b8;margin:0 2px 10px;font-weight:600}
         .add-row{display:flex;gap:6px;margin-bottom:6px}
@@ -954,6 +995,40 @@ export default function Home() {
           : <button className="board-act" onClick={() => setPaywall(true)}>✨ Passer en illimité</button>}
         {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
+
+      {/* Événement familial partagé (compte à rebours) */}
+      {(() => {
+        const dU = familyEvent ? daysUntil(familyEvent.date) : null
+        return (
+          <div className="event-bar">
+            {familyEvent && dU != null && dU >= 0 ? (
+              <button className="event-pill" onClick={openEventForm} title="Modifier l'événement">
+                🗓️ <strong>{familyEvent.title}</strong> — {dU === 0 ? "c'est aujourd'hui ! 🎉" : `J-${dU}`}
+              </button>
+            ) : (
+              <button className="event-add" onClick={openEventForm}>+ Événement familial</button>
+            )}
+          </div>
+        )
+      })()}
+      {eventForm && (
+        <div className="add-form" style={{ maxWidth: 380 }}>
+          <div className="city">🗓️ Prochain événement familial</div>
+          <input
+            className="add-input" style={{ width: '100%' }}
+            value={evTitle} onChange={e => setEvTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveEvent() }}
+            placeholder="Ex : Vacances tous ensemble" autoFocus
+          />
+          <div className="add-label">Date</div>
+          <input className="add-input" style={{ width: '100%' }} type="date" value={evDate} onChange={e => setEvDate(e.target.value)} />
+          <div className="add-actions">
+            <button className="add-btn" onClick={saveEvent}>Enregistrer</button>
+            {familyEvent && <button className="add-cancel" onClick={clearEvent} title="Supprimer l'événement">🗑</button>}
+            <button className="add-cancel" onClick={() => setEventForm(false)}>✕</button>
+          </div>
+        </div>
+      )}
 
       {/* Mur familial : à l'affiche (récents) → archives */}
       {feed.length > 0 && (() => {
