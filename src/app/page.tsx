@@ -137,6 +137,8 @@ type Proche = {
 const LS_PROCHES = 'homeboard.proches'
 const LS_SELECTED = 'homeboard.selected'
 const LS_LICENSE = 'homeboard.license'
+const LS_SYNC = 'homeboard.sync'
+const LS_SYNCED_AT = 'homeboard.syncedAt'
 
 // Monétisation : mode don (Phase C). Pas de gate — soutien volontaire.
 const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
@@ -175,13 +177,32 @@ function phoneDigits(phone: string): string {
 }
 
 // Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
-function encodeBoard(proches: Proche[], selId: string): string {
+// Payload compact partagé par le lien (#b=) ET la sync Telegram. Photos exclues (trop lourdes).
+type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string }[]; s: number; u?: number }
+
+function boardToPayload(proches: Proche[], selId: string): BoardPayload {
   const idx = Math.max(0, proches.findIndex(p => p.id === selId))
-  const payload = {
+  return {
     p: proches.map(p => ({ n: p.name, la: p.lat, lo: p.lon, c: p.city, e: p.emoji, r: p.relation, b: p.birthday, t: p.phone })),
     s: idx,
   }
-  const bytes = new TextEncoder().encode(JSON.stringify(payload))
+}
+function payloadToBoard(payload: BoardPayload | null): { proches: Proche[]; selectedId: string } | null {
+  if (!payload || !Array.isArray(payload.p) || payload.p.length === 0) return null
+  const proches: Proche[] = payload.p.map(o =>
+    ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t }))
+  const selectedId = proches[payload.s]?.id ?? proches[0].id
+  return { proches, selectedId }
+}
+// Réattache les photos locales (non synchronisées) en matchant ville+nom
+function mergePhotos(adopted: Proche[], local: Proche[]): Proche[] {
+  const key = (p: Proche) => `${p.lat},${p.lon},${p.name}`
+  const photos = new Map(local.filter(p => p.photo).map(p => [key(p), p.photo as string]))
+  return adopted.map(p => photos.has(key(p)) ? { ...p, photo: photos.get(key(p)) } : p)
+}
+
+function encodeBoard(proches: Proche[], selId: string): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(boardToPayload(proches, selId)))
   let bin = ''
   bytes.forEach(b => { bin += String.fromCharCode(b) })
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -191,12 +212,7 @@ function decodeBoard(str: string): { proches: Proche[]; selectedId: string } | n
     const b64 = str.replace(/-/g, '+').replace(/_/g, '/')
     const bin = atob(b64)
     const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
-    const payload = JSON.parse(new TextDecoder().decode(bytes))
-    if (!Array.isArray(payload.p) || payload.p.length === 0) return null
-    const proches: Proche[] = payload.p.map((o: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string }) =>
-      ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t }))
-    const selectedId = proches[payload.s]?.id ?? proches[0].id
-    return { proches, selectedId }
+    return payloadToBoard(JSON.parse(new TextDecoder().decode(bytes)))
   } catch { return null }
 }
 
@@ -229,9 +245,15 @@ export default function Home() {
   const [keyInput, setKeyInput] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [keyError, setKeyError] = useState('')
+  const [sync, setSync] = useState(false)
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'off'>('idle')
 
   const selected = proches.find(p => p.id === selectedId) ?? proches[0] ?? null
   const placeRef = useRef(selected?.id ?? '')
+  // Refs pour la sync (évite les closures périmées dans les timers/effets)
+  const prochesRef = useRef(proches); useEffect(() => { prochesRef.current = proches }, [proches])
+  const selIdRef = useRef(selectedId); useEffect(() => { selIdRef.current = selectedId }, [selectedId])
+  const syncedAtRef = useRef(0)
 
   useEffect(() => { placeRef.current = selected?.id ?? '' }, [selected])
 
@@ -450,6 +472,76 @@ export default function Home() {
       localStorage.setItem(LS_SELECTED, selectedId)
     } catch { /* localStorage indisponible */ }
   }, [proches, selectedId])
+
+  // ── Sync Telegram (gratuite) ────────────────────────────────────────────────
+  const pushBoard = useCallback(async () => {
+    setSyncState('saving')
+    const u = Date.now()
+    const payload = { ...boardToPayload(prochesRef.current, selIdRef.current), u }
+    try {
+      const res = await fetch('/api/board', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ board: payload }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        syncedAtRef.current = u
+        try { localStorage.setItem(LS_SYNCED_AT, String(u)) } catch { /* */ }
+        setSyncState('saved')
+      } else setSyncState(data.reason === 'sync-off' ? 'off' : 'error')
+    } catch { setSyncState('error') }
+  }, [])
+
+  const pullBoard = useCallback(async () => {
+    try {
+      const res = await fetch('/api/board', { cache: 'no-store' })
+      const data = await res.json()
+      if (!data.ok) { setSyncState(data.reason === 'sync-off' ? 'off' : 'error'); return }
+      const board: (BoardPayload & { u?: number }) | null = data.board
+      if (board && typeof board.u === 'number' && board.u > syncedAtRef.current) {
+        const parsed = payloadToBoard(board)
+        if (parsed) {
+          setProches(prev => mergePhotos(parsed.proches, prev))
+          setSelectedId(parsed.selectedId)
+          syncedAtRef.current = board.u
+          try { localStorage.setItem(LS_SYNCED_AT, String(board.u)) } catch { /* */ }
+        }
+      }
+      setSyncState('saved')
+    } catch { setSyncState('error') }
+  }, [])
+
+  function toggleSync() {
+    const next = !sync
+    setSync(next)
+    try { localStorage.setItem(LS_SYNC, next ? '1' : '') } catch { /* */ }
+    if (!next) setSyncState('idle')
+  }
+
+  // Au montage : réactiver la sync si elle l'était
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(LS_SYNC) === '1') {
+        syncedAtRef.current = Number(localStorage.getItem(LS_SYNCED_AT) || 0)
+        setSync(true)
+      }
+    } catch { /* */ }
+  }, [])
+
+  // Quand la sync est active : tirer (adopter si plus récent) puis pousser (semer/écrire)
+  useEffect(() => {
+    if (!sync || !hydrated.current) return
+    let cancelled = false
+    ;(async () => { await pullBoard(); if (!cancelled) pushBoard() })()
+    return () => { cancelled = true }
+  }, [sync, pullBoard, pushBoard])
+
+  // Pousser les changements (debounce 1,5 s) quand la sync est active
+  useEffect(() => {
+    if (!sync || !hydrated.current) return
+    const t = setTimeout(() => pushBoard(), 1500)
+    return () => clearTimeout(t)
+  }, [proches, selectedId, sync, pushBoard])
 
   // AQI helpers
   const nowH = new Date().getHours()
@@ -718,6 +810,14 @@ export default function Home() {
       </div>
       <div className="board-bar">
         {proches.length > 0 && <button className="board-act" onClick={shareBoard}>🔗 Partager ce tableau</button>}
+        <button className="board-act" onClick={toggleSync} title="Synchroniser entre tes appareils via Telegram">
+          {sync
+            ? (syncState === 'saving' ? '☁️ Sync…'
+              : syncState === 'error' ? '⚠️ Sync (erreur)'
+              : syncState === 'off' ? '☁️ Sync (à configurer)'
+              : '☁️ Synchronisé')
+            : '☁️ Activer la sync'}
+        </button>
         {isPremium
           ? <span className="premium-badge">✨ Premium</span>
           : <button className="board-act" onClick={() => setPaywall(true)}>✨ Passer en illimité</button>}
