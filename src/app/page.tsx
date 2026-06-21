@@ -141,6 +141,7 @@ const LS_SELECTED = 'homeboard.selected'
 const LS_LICENSE = 'homeboard.license'
 const LS_SYNC = 'homeboard.sync'
 const LS_SYNCED_AT = 'homeboard.syncedAt'
+const LS_FEED = 'homeboard.feed'
 
 // Monétisation : mode don (Phase C). Pas de gate — soutien volontaire.
 const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
@@ -216,6 +217,28 @@ function todayISO(): string {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
 }
 
+// ── Mur familial : accumulation des messages Telegram ────────────────────────
+// getUpdates n'expose que la fenêtre récente ; on accumule côté client pour
+// garder les messages "à l'affiche" quelques jours, puis les archiver.
+const WALL_FEATURED_DAYS = 3   // à l'affiche
+const WALL_KEEP_DAYS = 30      // archivés jusqu'à 30 j, puis purgés
+
+// Fusionne les messages reçus dans le flux accumulé (dédup par id, purge, tri récent→ancien)
+function mergeFeed(prev: TgMessage[], incoming: TgMessage[]): TgMessage[] {
+  const byId = new Map<number, TgMessage>(prev.map(m => [m.id, m]))
+  // incoming d'abord en base, puis on garde les médias frais : incoming écrase
+  incoming.forEach(m => byId.set(m.id, { ...byId.get(m.id), ...m }))
+  const cutoff = Date.now() / 1000 - WALL_KEEP_DAYS * 86400
+  return [...byId.values()]
+    .filter(m => m.date >= cutoff)
+    .sort((a, b) => b.date - a.date)
+    .slice(0, 200)
+}
+// Les URLs de média Telegram expirent (~1 h) → on ne persiste que le texte
+function stripMedia(m: TgMessage): TgMessage {
+  return { id: m.id, from: m.from, date: m.date, text: m.text, caption: m.caption }
+}
+
 // Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
 // Payload compact partagé par le lien (#b=) ET la sync Telegram. Photos exclues (trop lourdes).
 type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string; lc?: string }[]; s: number; u?: number }
@@ -282,7 +305,8 @@ export default function Home() {
   const [ecmwfH, setEcmwfH] = useState<HourlyData | null>(null)
   const [aqH, setAqH] = useState<AqHourly | null>(null)
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
-  const [messages, setMessages] = useState<TgMessage[]>([])
+  const [feed, setFeed] = useState<TgMessage[]>([])
+  const [showArchives, setShowArchives] = useState(false)
   const [isPremium, setIsPremium] = useState(false)
   const [paywall, setPaywall] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -324,7 +348,13 @@ export default function Home() {
   const loadMessages = useCallback(async () => {
     try {
       const res = await fetch('/api/messages')
-      if (res.ok) setMessages(await res.json())
+      if (!res.ok) return
+      const incoming: TgMessage[] = await res.json()
+      setFeed(prev => {
+        const merged = mergeFeed(prev, incoming)
+        try { localStorage.setItem(LS_FEED, JSON.stringify(merged.map(stripMedia))) } catch { /* */ }
+        return merged
+      })
     } catch { /* */ }
   }, [])
 
@@ -532,6 +562,13 @@ export default function Home() {
       } catch { /* localStorage indisponible */ }
     }
     try { if (localStorage.getItem(LS_LICENSE)) setIsPremium(true) } catch { /* */ }
+    try {
+      const rawFeed = localStorage.getItem(LS_FEED)
+      if (rawFeed) {
+        const saved: TgMessage[] = JSON.parse(rawFeed)
+        if (Array.isArray(saved)) setFeed(mergeFeed(saved, []))
+      }
+    } catch { /* */ }
     hydrated.current = true
   }, [])
 
@@ -772,6 +809,13 @@ export default function Home() {
         .msg-text{font-size:.85rem;color:#e2e8f0;line-height:1.4}
         .msg-date{font-size:.55rem;color:#475569;margin-top:4px}
         .msg-media{max-width:100%;border-radius:8px;margin-top:8px}
+        .archives{margin-top:6px;border-top:1px solid #334155;padding-top:6px}
+        .arch-toggle{background:none;border:none;color:#64748b;font-size:.65rem;cursor:pointer;padding:4px 0;letter-spacing:.5px}
+        .arch-toggle:hover{color:#94a3b8}
+        .arch-item{display:flex;gap:8px;align-items:baseline;font-size:.68rem;padding:3px 0;border-top:1px solid #0f172a}
+        .arch-from{color:#38bdf8;font-weight:600;flex:none;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .arch-txt{color:#94a3b8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .arch-date{color:#475569;font-size:.58rem;flex:none}
         .loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;gap:16px}
         .spin{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#38bdf8;border-radius:50%;animation:sp .8s linear infinite}
         @keyframes sp{to{transform:rotate(360deg)}}
@@ -911,22 +955,43 @@ export default function Home() {
         {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
 
-      {/* Messages importants */}
-      {messages.length > 0 && (
-        <div className="box" style={{ maxWidth: 900, margin: '0 auto 14px' }}>
-          <div className="box-hdr"><h2>📢 Messages importants</h2><span style={{ fontSize: '.55rem', color: '#475569' }}>via Telegram</span></div>
-          {messages.slice(0, 3).map(msg => (
-            <div key={msg.id} className="msg-card">
-              <div className="msg-author">👤 {msg.from}</div>
-              {msg.text && <div className="msg-text">{msg.text}</div>}
-              {msg.caption && <div className="msg-text">{msg.caption}</div>}
-              {msg.photo && <img className="msg-media" src={msg.photo} alt="photo" />}
-              {msg.audio && <audio controls src={msg.audio} style={{ width: '100%', marginTop: 8 }} />}
-              <div className="msg-date">{new Date(msg.date * 1000).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Mur familial : à l'affiche (récents) → archives */}
+      {feed.length > 0 && (() => {
+        const cut = Date.now() / 1000 - WALL_FEATURED_DAYS * 86400
+        const featured = feed.filter(m => m.date >= cut)
+        const archived = feed.filter(m => m.date < cut)
+        const fmtDate = (d: number) => new Date(d * 1000).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        return (
+          <div className="box" style={{ maxWidth: 900, margin: '0 auto 14px' }}>
+            <div className="box-hdr"><h2>📢 Mur familial</h2><span style={{ fontSize: '.55rem', color: '#475569' }}>via Telegram</span></div>
+            {featured.length === 0 && <div style={{ fontSize: '.75rem', color: '#64748b' }}>Rien de neuf ces derniers jours.</div>}
+            {featured.map(msg => (
+              <div key={msg.id} className="msg-card">
+                <div className="msg-author">👤 {msg.from}</div>
+                {msg.text && <div className="msg-text">{msg.text}</div>}
+                {msg.caption && <div className="msg-text">{msg.caption}</div>}
+                {msg.photo && <img className="msg-media" src={msg.photo} alt="photo" />}
+                {msg.audio && <audio controls src={msg.audio} style={{ width: '100%', marginTop: 8 }} />}
+                <div className="msg-date">{fmtDate(msg.date)}</div>
+              </div>
+            ))}
+            {archived.length > 0 && (
+              <div className="archives">
+                <button className="arch-toggle" onClick={() => setShowArchives(v => !v)}>
+                  {showArchives ? '▾' : '▸'} Archives ({archived.length})
+                </button>
+                {showArchives && archived.map(msg => (
+                  <div key={msg.id} className="arch-item">
+                    <span className="arch-from">{msg.from}</span>
+                    <span className="arch-txt">{msg.text || msg.caption || (msg.photo ? '📷 photo' : msg.audio ? '🎤 vocal' : '—')}</span>
+                    <span className="arch-date">{fmtDate(msg.date)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {proches.length === 0 ? (
         <div className="ftue">
