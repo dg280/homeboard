@@ -7,7 +7,9 @@ export const dynamic = 'force-dynamic'
 // message ÉPINGLÉ d'un canal/groupe privé, lu/écrit par le bot. Zéro base,
 // zéro nouveau compte. Le bot doit être ADMIN du canal (droit d'épingler).
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
-const BOARD_CHAT = process.env.TELEGRAM_BOARD_CHAT_ID || process.env.TELEGRAM_CHAT_ID || ''
+// Canal DÉDIÉ au store (pas le chat famille) : pas de fallback sur TELEGRAM_CHAT_ID,
+// pour ne jamais polluer le flux de messages avec le JSON du board.
+const BOARD_CHAT = process.env.TELEGRAM_BOARD_CHAT_ID || ''
 const TG = `https://api.telegram.org/bot${TG_TOKEN}`
 const MARKER = 'HOMEBOARD_BOARD_V1'
 
