@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { isNameDayToday } from './namedays'
 
 
 // ── Helpers météo ────────────────────────────────────────────────────────────
@@ -131,6 +132,7 @@ type Proche = {
   emoji?: string; photo?: string; relation?: string
   birthday?: string // 'YYYY-MM-DD' ou 'MM-DD'
   phone?: string
+  lastContact?: string // 'YYYY-MM-DD' — dernière fois qu'on s'est parlé
 }
 
 // ── Persistance & partage ─────────────────────────────────────────────────────
@@ -176,21 +178,59 @@ function phoneDigits(phone: string): string {
   return phone.replace(/[^\d]/g, '')
 }
 
+// Heure murale chez le proche : maintenant (UTC) + offset, lue via les champs UTC
+function procheClock(offsetSeconds: number, nowMs: number): string {
+  const pd = new Date(nowMs + offsetSeconds * 1000)
+  return `${String(pd.getUTCHours()).padStart(2, '0')}:${String(pd.getUTCMinutes()).padStart(2, '0')}`
+}
+// Décalage relatif au lecteur ("+6h", "-3h", "même heure")
+function offsetDiffLabel(offsetSeconds: number): string {
+  const viewerH = -new Date().getTimezoneOffset() / 60
+  const procheH = offsetSeconds / 3600
+  const diff = Math.round((procheH - viewerH) * 10) / 10
+  if (diff === 0) return 'même heure'
+  return `${diff > 0 ? '+' : ''}${diff}h`
+}
+// "2026-06-21T07:12" → "07:12"
+function hhmm(iso?: string): string {
+  if (!iso || !iso.includes('T')) return '--'
+  return iso.split('T')[1].slice(0, 5)
+}
+// Temps écoulé depuis une date 'YYYY-MM-DD' → "aujourd'hui" / "il y a 3 sem"
+function relativeSince(dateStr?: string): string | null {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+  const d = new Date(`${dateStr}T00:00:00`)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = Math.round((today.getTime() - d.getTime()) / 86400000)
+  if (days < 0) return null
+  if (days === 0) return "aujourd'hui"
+  if (days === 1) return 'hier'
+  if (days < 7) return `il y a ${days} j`
+  if (days < 31) return `il y a ${Math.round(days / 7)} sem`
+  if (days < 365) return `il y a ${Math.round(days / 30)} mois`
+  return `il y a ${Math.round(days / 365)} an${days >= 730 ? 's' : ''}`
+}
+function todayISO(): string {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
+}
+
 // Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
 // Payload compact partagé par le lien (#b=) ET la sync Telegram. Photos exclues (trop lourdes).
-type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string }[]; s: number; u?: number }
+type BoardPayload = { p: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string; lc?: string }[]; s: number; u?: number }
 
 function boardToPayload(proches: Proche[], selId: string): BoardPayload {
   const idx = Math.max(0, proches.findIndex(p => p.id === selId))
   return {
-    p: proches.map(p => ({ n: p.name, la: p.lat, lo: p.lon, c: p.city, e: p.emoji, r: p.relation, b: p.birthday, t: p.phone })),
+    p: proches.map(p => ({ n: p.name, la: p.lat, lo: p.lon, c: p.city, e: p.emoji, r: p.relation, b: p.birthday, t: p.phone, lc: p.lastContact })),
     s: idx,
   }
 }
 function payloadToBoard(payload: BoardPayload | null): { proches: Proche[]; selectedId: string } | null {
   if (!payload || !Array.isArray(payload.p) || payload.p.length === 0) return null
   const proches: Proche[] = payload.p.map(o =>
-    ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t }))
+    ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t, lastContact: o.lc }))
   const selectedId = proches[payload.s]?.id ?? proches[0].id
   return { proches, selectedId }
 }
@@ -227,7 +267,10 @@ export default function Home() {
   const [addBirthday, setAddBirthday] = useState('')
   const [addPhone, setAddPhone] = useState('')
   const [addPhoto, setAddPhoto] = useState('') // data URL compressé, local only
+  const [addLastContact, setAddLastContact] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [localInfo, setLocalInfo] = useState<{ offset: number; tz: string; sunrise: string; sunset: string } | null>(null)
+  const [nowMs, setNowMs] = useState(0) // horloge ; 0 au 1er rendu (SSR-safe), mis à jour côté client
   const [shareMsg, setShareMsg] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
@@ -295,6 +338,30 @@ export default function Home() {
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.lat, selected?.lon, loadForecast])
+
+  // Heure locale + fuseau + lever/coucher du soleil chez le proche (fetch isolé, ne touche pas le pipeline météo)
+  useEffect(() => {
+    if (!selected) { setLocalInfo(null); return }
+    let cancelled = false
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${selected.lat}&longitude=${selected.lon}&daily=sunrise,sunset&timezone=auto&forecast_days=1`
+    fetch(url).then(r => r.json()).then(d => {
+      if (cancelled) return
+      setLocalInfo({
+        offset: typeof d.utc_offset_seconds === 'number' ? d.utc_offset_seconds : 0,
+        tz: d.timezone ?? '',
+        sunrise: d.daily?.sunrise?.[0] ?? '',
+        sunset: d.daily?.sunset?.[0] ?? '',
+      })
+    }).catch(() => { if (!cancelled) setLocalInfo(null) })
+    return () => { cancelled = true }
+  }, [selected?.id, selected?.lat, selected?.lon])
+
+  // Horloge locale : maj toutes les 30 s (re-rendu de l'heure chez le proche)
+  useEffect(() => {
+    setNowMs(Date.now())
+    const iv = setInterval(() => setNowMs(Date.now()), 30000)
+    return () => clearInterval(iv)
+  }, [])
 
   useEffect(() => {
     loadMessages()
@@ -370,12 +437,15 @@ export default function Home() {
   }
   function resetAddForm() {
     setPending(null); setEditingId(null)
-    setAddName(''); setAddRelation(''); setAddEmoji(''); setAddBirthday(''); setAddPhone(''); setAddPhoto('')
+    setAddName(''); setAddRelation(''); setAddEmoji(''); setAddBirthday(''); setAddPhone(''); setAddPhoto(''); setAddLastContact('')
   }
   function startEdit(p: Proche) {
     setEditingId(p.id); setPending(null)
     setAddName(p.name); setAddRelation(p.relation || ''); setAddEmoji(p.emoji || '')
-    setAddBirthday(p.birthday || ''); setAddPhone(p.phone || ''); setAddPhoto(p.photo || '')
+    setAddBirthday(p.birthday || ''); setAddPhone(p.phone || ''); setAddPhoto(p.photo || ''); setAddLastContact(p.lastContact || '')
+  }
+  function markContacted(id: string) {
+    setProches(prev => prev.map(p => p.id === id ? { ...p, lastContact: todayISO() } : p))
   }
   function confirmAdd() {
     const common = {
@@ -384,6 +454,7 @@ export default function Home() {
       birthday: addBirthday || undefined,
       phone: addPhone.trim() || undefined,
       photo: addPhoto || undefined,
+      lastContact: addLastContact || undefined,
     }
     if (editingId) {
       setProches(prev => prev.map(p => p.id === editingId
@@ -675,7 +746,14 @@ export default function Home() {
         .idcard .who{flex:1;min-width:0}
         .idcard .who .nm{font-size:1.05rem;font-weight:700;color:#e2e8f0}
         .idcard .who .rel{font-size:.68rem;color:#64748b}
+        .idcard .idmeta{font-size:.68rem;color:#94a3b8;margin-top:3px}
+        .idcard .idmeta .dim{color:#475569}
         .idcard .bday{font-size:.72rem;color:#fbbf24;margin-top:3px}
+        .idcard .fete{font-size:.72rem;color:#f472b6;margin-top:3px;font-weight:600}
+        .idcard .lastseen{display:flex;align-items:center;gap:8px;font-size:.68rem;color:#94a3b8;margin-top:5px;flex-wrap:wrap}
+        .idcard .lastseen .dim{color:#475569}
+        .lastseen-btn{background:#0f172a;border:1px solid #334155;color:#4ade80;border-radius:14px;padding:2px 9px;font-size:.62rem;cursor:pointer}
+        .lastseen-btn:hover{border-color:#4ade80}
         .idcard .actions{display:flex;gap:8px;flex:none}
         .id-act{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;font-size:1.1rem;text-decoration:none;background:#0f172a;border:1px solid #334155;transition:.2s}
         .id-act:hover{border-color:#38bdf8;transform:translateY(-2px)}
@@ -782,6 +860,15 @@ export default function Home() {
             onKeyDown={e => { if (e.key === 'Enter') confirmAdd() }}
             placeholder="+33 6 12 34 56 78"
           />
+          <div className="add-label">Dernière fois qu'on s'est parlé (optionnel)</div>
+          <input
+            className="add-input"
+            style={{ width: '100%' }}
+            type="date"
+            value={addLastContact}
+            max={todayISO()}
+            onChange={e => setAddLastContact(e.target.value)}
+          />
           <div className="add-actions">
             <button className="add-btn" onClick={confirmAdd}>{editingId ? 'Enregistrer' : 'Ajouter ce proche'}</button>
             <button className="add-cancel" onClick={resetAddForm}>✕</button>
@@ -863,6 +950,8 @@ export default function Home() {
           {(() => {
             const bd = birthdayInfo(selected.birthday)
             const wa = selected.phone ? phoneDigits(selected.phone) : ''
+            const feteToday = isNameDayToday(selected.name)
+            const lastSeen = relativeSince(selected.lastContact)
             return (
               <div className="idcard">
                 <div className="avatar">
@@ -871,6 +960,12 @@ export default function Home() {
                 <div className="who">
                   <div className="nm">{selected.name}</div>
                   <div className="rel">{[selected.relation, selected.city].filter(Boolean).join(' · ')}</div>
+                  {localInfo && (
+                    <div className="idmeta">
+                      🕐 {procheClock(localInfo.offset, nowMs || Date.now())} <span className="dim">({offsetDiffLabel(localInfo.offset)})</span>
+                      {localInfo.sunrise && <> · 🌅 {hhmm(localInfo.sunrise)} 🌇 {hhmm(localInfo.sunset)}</>}
+                    </div>
+                  )}
                   {bd && (
                     <div className="bday">
                       {bd.days === 0
@@ -878,6 +973,11 @@ export default function Home() {
                         : `🎂 Anniversaire dans ${bd.days} j${bd.turning != null ? ` — ${bd.turning} ans` : ''}`}
                     </div>
                   )}
+                  {feteToday && <div className="fete">🎉 C&apos;est sa fête aujourd&apos;hui !</div>}
+                  <div className="lastseen">
+                    {lastSeen ? <>💬 Parlé {lastSeen}</> : <span className="dim">💬 Jamais noté</span>}
+                    <button className="lastseen-btn" onClick={() => markContacted(selected.id)} title="Marquer : on s'est parlé aujourd'hui">✓ aujourd&apos;hui</button>
+                  </div>
                 </div>
                 <div className="actions">
                   {selected.phone && <a className="id-act" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" title="WhatsApp">💬</a>}
