@@ -6,28 +6,34 @@ Faits stables du domaine `homeboard` (tableau de bord maison / familial).
 
 ## Contexte du domaine
 
-App **Next.js** servant de **tableau de bord domestique** (écran d'info
-du foyer). Deux briques actuelles :
-
-1. **Météo multi-villes** — Open-Meteo (sans clé), villes des proches
-   et points d'ancrage de Didier.
-2. **Messages** — derniers messages d'un canal **Telegram** (texte,
-   photo, voix) via un bot, exposés par la route `/api/messages`.
+App **Next.js** = **tableau familial centré sur les personnes** (« le
+tableau qui te garde proche de ceux que tu aimes »). L'utilisateur ajoute
+ses **proches** (prénom + ville + carte d'identité), chacun avec sa météo,
+son anniversaire, son heure locale, sa fête, et des boutons pour le
+contacter. Plus un **mur familial** (messages Telegram) et un **événement
+familial** partagé. Modèle = **don** (Ko-fi), pas de paywall.
 
 ## Stack technique
 
-— Next.js 14 (App Router), React 18, TypeScript.
-— Front client : `src/app/page.tsx`. API : `src/app/api/messages/route.ts`.
-— Déploiement pressenti : Vercel.
-— Secrets (env, jamais committés) : `TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_CHAT_ID`.
+— Next.js 14 (App Router), React 18, TypeScript. Déployé sur **Vercel**
+  (https://homeboard-omega.vercel.app).
+— Front : `src/app/page.tsx` (gros monolithe client) + `src/app/namedays.ts`
+  (calendrier des prénoms). Routes API :
+  — `/api/messages` — flux Telegram (getUpdates).
+  — `/api/board` — sync du board (lit/écrit un message épinglé d'un canal
+    Telegram dédié, via le bot). `force-dynamic`.
+— **Données 100% locales** (localStorage) + partage par lien (`#b=` base64url)
+  + sync optionnelle via Telegram. Pas de base de données.
+— Secrets/env (jamais committés, cf. `.env.example`) : `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_CHAT_ID` (messages), `TELEGRAM_BOARD_CHAT_ID` (sync, canal dédié,
+  bot admin), `NEXT_PUBLIC_KOFI_URL` (don).
 
-## Villes suivies (météo)
+## Modèle de données « proche »
 
-Gujan-Mestras, Nailloux, Paimpol, Savigny-le-Temple, Nice, Montpellier,
-Saint-Romain-de-Lerps, Marseille, Clairac.
-(Liste codée en dur dans `page.tsx` → `CITIES` ; à faire évoluer selon
-les proches.)
+`Proche = { id, name, lat, lon, city, emoji?, photo?, relation?, birthday?,
+phone?, lastContact? }`. Board-level : `familyEvent { title, date }`.
+Les villes ne sont plus codées en dur (l'ancien `CITIES` a été retiré) :
+chacun saisit ses proches via la recherche geocoding Open-Meteo.
 
 ## Acteurs / personnes
 
