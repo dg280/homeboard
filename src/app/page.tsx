@@ -1,18 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
-// ── Villes ───────────────────────────────────────────────────────────────────
-const CITIES: Record<string, { lat: number; lon: number; label: string }> = {
-  'gujan-mestras':       { lat: 44.6367, lon: -1.0667, label: 'Gujan-Mestras' },
-  'nailloux':            { lat: 43.3567, lon: 1.6231,  label: 'Nailloux' },
-  'paimpol':             { lat: 48.7811, lon: -3.0453, label: 'Paimpol' },
-  'savigny-le-temple':   { lat: 48.5847, lon: 2.5828,  label: 'Savigny-le-Temple' },
-  'nice':                { lat: 43.7102, lon: 7.2620,  label: 'Nice' },
-  'montpellier':         { lat: 43.6108, lon: 3.8767,  label: 'Montpellier' },
-  'saint-romain-de-lerps': { lat: 44.9333, lon: 4.7833, label: 'Saint-Romain-de-Lerps' },
-  'marseille':           { lat: 43.2965, lon: 5.3698,  label: 'Marseille' },
-  'clairac':             { lat: 44.3569, lon: 0.3781,  label: 'Clairac' },
-}
 
 // ── Helpers météo ────────────────────────────────────────────────────────────
 const WMO: Record<number, string> = {
@@ -137,16 +125,20 @@ interface GeoResult {
   country?: string; admin1?: string
 }
 type Place = { key: string; lat: number; lon: number; label: string }
-// Un "proche" = une personne aimée + la ville où elle vit
-type Proche = { id: string; name: string; lat: number; lon: number; city: string }
+// Un "proche" = une personne aimée + la ville où elle vit + sa carte d'identité
+type Proche = {
+  id: string; name: string; lat: number; lon: number; city: string
+  emoji?: string; photo?: string; relation?: string
+  birthday?: string // 'YYYY-MM-DD' ou 'MM-DD'
+  phone?: string
+}
 
 // ── Persistance & partage ─────────────────────────────────────────────────────
 const LS_PROCHES = 'homeboard.proches'
 const LS_SELECTED = 'homeboard.selected'
 const LS_LICENSE = 'homeboard.license'
 
-// Monétisation : gratuit = 3 proches, Premium (achat unique Gumroad) = illimité
-const FREE_MAX = 3
+// Monétisation : mode don (Phase C). Pas de gate — soutien volontaire.
 const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
 
 let idCounter = 0
@@ -156,15 +148,39 @@ function newId(): string {
   return `p${idCounter}-${Date.now()}`
 }
 
-// Seed initial déterministe (depuis les villes historiques) — pas de hasard au 1er rendu (SSR-safe)
+// Nouvel utilisateur = aucun proche → la FTUE (onboarding) prend le relais
 function seedProches(): Proche[] {
-  return Object.entries(CITIES).map(([slug, v]) => ({ id: `seed-${slug}`, name: v.label, lat: v.lat, lon: v.lon, city: v.label }))
+  return []
+}
+
+// Anniversaire : jours avant le prochain + âge qu'il/elle va avoir (si l'année est connue)
+function birthdayInfo(b?: string): { days: number; turning: number | null } | null {
+  if (!b) return null
+  const m = b.match(/^(?:(\d{4})-)?(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const year = m[1] ? parseInt(m[1]) : null
+  const mo = parseInt(m[2]) - 1, day = parseInt(m[3])
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  let next = new Date(now.getFullYear(), mo, day)
+  if (next < today) next = new Date(now.getFullYear() + 1, mo, day)
+  const days = Math.round((next.getTime() - today.getTime()) / 86400000)
+  const turning = year != null ? next.getFullYear() - year : null
+  return { days, turning }
+}
+
+// Numéro → lien WhatsApp (chiffres seuls, + transformé en 00 retiré) et lien d'appel
+function phoneDigits(phone: string): string {
+  return phone.replace(/[^\d]/g, '')
 }
 
 // Encodage UTF-8 → base64url, pour un lien = un tableau prêt à coller
 function encodeBoard(proches: Proche[], selId: string): string {
   const idx = Math.max(0, proches.findIndex(p => p.id === selId))
-  const payload = { p: proches.map(p => [p.name, p.lat, p.lon, p.city]), s: idx }
+  const payload = {
+    p: proches.map(p => ({ n: p.name, la: p.lat, lo: p.lon, c: p.city, e: p.emoji, r: p.relation, b: p.birthday, t: p.phone })),
+    s: idx,
+  }
   const bytes = new TextEncoder().encode(JSON.stringify(payload))
   let bin = ''
   bytes.forEach(b => { bin += String.fromCharCode(b) })
@@ -177,8 +193,8 @@ function decodeBoard(str: string): { proches: Proche[]; selectedId: string } | n
     const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
     const payload = JSON.parse(new TextDecoder().decode(bytes))
     if (!Array.isArray(payload.p) || payload.p.length === 0) return null
-    const proches: Proche[] = payload.p.map((t: [string, number, number, string]) =>
-      ({ id: newId(), name: t[0], lat: t[1], lon: t[2], city: t[3] }))
+    const proches: Proche[] = payload.p.map((o: { n: string; la: number; lo: number; c: string; e?: string; r?: string; b?: string; t?: string }) =>
+      ({ id: newId(), name: o.n, lat: o.la, lon: o.lo, city: o.c, emoji: o.e, relation: o.r, birthday: o.b, phone: o.t }))
     const selectedId = proches[payload.s]?.id ?? proches[0].id
     return { proches, selectedId }
   } catch { return null }
@@ -187,9 +203,13 @@ function decodeBoard(str: string): { proches: Proche[]; selectedId: string } | n
 // ── Composant principal ──────────────────────────────────────────────────────
 export default function Home() {
   const [proches, setProches] = useState<Proche[]>(seedProches)
-  const [selectedId, setSelectedId] = useState<string>('seed-gujan-mestras')
-  const [pending, setPending] = useState<Proche | null>(null) // ville choisie en attente d'un prénom
+  const [selectedId, setSelectedId] = useState<string>('')
+  const [pending, setPending] = useState<Proche | null>(null) // ville choisie en attente d'identité
   const [addName, setAddName] = useState('')
+  const [addRelation, setAddRelation] = useState('')
+  const [addEmoji, setAddEmoji] = useState('')
+  const [addBirthday, setAddBirthday] = useState('')
+  const [addPhone, setAddPhone] = useState('')
   const [shareMsg, setShareMsg] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
@@ -295,13 +315,9 @@ export default function Home() {
     return () => clearTimeout(t)
   }, [query])
 
-  // Choisir une ville dans la recherche → ouvre le formulaire "prénom"
-  // Gate Premium : au-delà de FREE_MAX proches, on propose le déblocage
+  // Choisir une ville dans la recherche → ouvre le formulaire d'identité du proche
+  // (mode don : aucun blocage, le soutien est volontaire)
   function pickResult(r: GeoResult) {
-    if (!isPremium && proches.length >= FREE_MAX) {
-      setPaywall(true); setQuery(''); setResults([])
-      return
-    }
     const city = r.admin1 && r.admin1 !== r.name ? `${r.name} (${r.admin1})` : r.name
     setPending({ id: newId(), name: '', lat: r.latitude, lon: r.longitude, city })
     setAddName(r.name)
@@ -328,13 +344,22 @@ export default function Home() {
     } catch { setKeyError('Vérification impossible, réessaie') }
     setVerifying(false)
   }
+  function resetAddForm() {
+    setPending(null); setAddName(''); setAddRelation(''); setAddEmoji(''); setAddBirthday(''); setAddPhone('')
+  }
   function confirmAdd() {
     if (!pending) return
     const name = addName.trim() || pending.city
-    const proche = { ...pending, name }
+    const proche: Proche = {
+      ...pending, name,
+      relation: addRelation.trim() || undefined,
+      emoji: addEmoji.trim() || undefined,
+      birthday: addBirthday || undefined,
+      phone: addPhone.trim() || undefined,
+    }
     setProches(prev => [...prev, proche])
     setSelectedId(proche.id)
-    setPending(null); setAddName('')
+    resetAddForm()
   }
   function removeProche(id: string) {
     setProches(prev => {
@@ -491,13 +516,36 @@ export default function Home() {
         .board-act{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:5px 12px;font-size:.65rem;cursor:pointer;transition:.2s}
         .board-act:hover{border-color:#38bdf8;color:#38bdf8}
         .board-msg{font-size:.65rem;color:#4ade80}
-        .add-form{max-width:360px;margin:0 auto 10px;background:#1e293b;border:1px solid #38bdf8;border-radius:10px;padding:8px}
-        .add-form .city{font-size:.65rem;color:#94a3b8;margin:0 2px 6px}
-        .add-row{display:flex;gap:6px}
+        .add-form{max-width:380px;margin:0 auto 10px;background:#1e293b;border:1px solid #38bdf8;border-radius:12px;padding:14px}
+        .add-form .city{font-size:.7rem;color:#94a3b8;margin:0 2px 10px;font-weight:600}
+        .add-row{display:flex;gap:6px;margin-bottom:6px}
         .add-input{flex:1;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:.8rem;outline:none}
         .add-input:focus{border-color:#38bdf8}
-        .add-btn{background:#38bdf8;border:none;color:#0f172a;font-weight:700;border-radius:8px;padding:0 12px;font-size:.75rem;cursor:pointer}
-        .add-cancel{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:0 10px;font-size:.9rem;cursor:pointer}
+        .add-emoji{width:48px;text-align:center;flex:none}
+        .add-label{font-size:.55rem;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin:8px 2px 3px}
+        .add-actions{display:flex;gap:6px;margin-top:10px}
+        .add-btn{flex:1;background:#38bdf8;border:none;color:#0f172a;font-weight:700;border-radius:8px;padding:9px 12px;font-size:.78rem;cursor:pointer}
+        .add-cancel{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:0 12px;font-size:.9rem;cursor:pointer}
+        /* Onboarding (FTUE) */
+        .ftue{max-width:440px;margin:24px auto;text-align:center}
+        .ftue h2{font-size:1.05rem;color:#e2e8f0;margin-bottom:8px;text-transform:none;letter-spacing:0}
+        .ftue p{color:#94a3b8;font-size:.85rem;line-height:1.5;margin-bottom:18px}
+        .ftue-feats{display:flex;flex-direction:column;gap:8px;text-align:left;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:18px}
+        .ftue-feat{display:flex;align-items:center;gap:10px;font-size:.82rem;color:#cbd5e1}
+        .ftue-feat span:first-child{font-size:1.1rem}
+        .ftue-arrow{color:#38bdf8;font-size:.8rem;font-weight:600;animation:bob 1.4s ease-in-out infinite}
+        @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+        /* Carte d'identité du proche */
+        .idcard{display:flex;align-items:center;gap:14px;max-width:900px;margin:0 auto 14px;background:#1e293b;border:1px solid #334155;border-radius:14px;padding:14px}
+        .idcard .avatar{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:#0f172a;border:1px solid #334155;overflow:hidden}
+        .idcard .avatar img{width:100%;height:100%;object-fit:cover}
+        .idcard .who{flex:1;min-width:0}
+        .idcard .who .nm{font-size:1.05rem;font-weight:700;color:#e2e8f0}
+        .idcard .who .rel{font-size:.68rem;color:#64748b}
+        .idcard .bday{font-size:.72rem;color:#fbbf24;margin-top:3px}
+        .idcard .actions{display:flex;gap:8px;flex:none}
+        .id-act{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;font-size:1.1rem;text-decoration:none;background:#0f172a;border:1px solid #334155;transition:.2s}
+        .id-act:hover{border-color:#38bdf8;transform:translateY(-2px)}
         .premium-badge{font-size:.6rem;font-weight:700;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);border-radius:20px;padding:3px 10px;letter-spacing:.5px}
         .pw-buy{display:block;text-align:center;background:linear-gradient(135deg,#fbbf24,#f97316);color:#1a1006;font-weight:800;border:none;border-radius:10px;padding:12px;font-size:.9rem;cursor:pointer;text-decoration:none;margin-bottom:14px}
         .pw-feat{display:flex;align-items:center;gap:8px;font-size:.8rem;color:#cbd5e1;margin:7px 0}
@@ -544,21 +592,57 @@ export default function Home() {
         )}
       </div>
 
-      {/* Formulaire : prénom du proche pour la ville choisie */}
+      {/* Formulaire : carte d'identité du proche pour la ville choisie */}
       {pending && (
         <div className="add-form">
           <div className="city">📍 {pending.city}</div>
           <div className="add-row">
             <input
+              className="add-input add-emoji"
+              value={addEmoji}
+              onChange={e => setAddEmoji(e.target.value)}
+              placeholder="🙂"
+              maxLength={2}
+              aria-label="Emoji / avatar"
+            />
+            <input
               className="add-input"
               value={addName}
               onChange={e => setAddName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') { setPending(null); setAddName('') } }}
+              onKeyDown={e => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') resetAddForm() }}
               placeholder="Prénom (ex : Mamie)"
               autoFocus
             />
-            <button className="add-btn" onClick={confirmAdd}>Ajouter</button>
-            <button className="add-cancel" onClick={() => { setPending(null); setAddName('') }}>✕</button>
+          </div>
+          <input
+            className="add-input"
+            style={{ width: '100%' }}
+            value={addRelation}
+            onChange={e => setAddRelation(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confirmAdd() }}
+            placeholder="Lien (ex : Maman, Tonton, Pote) — optionnel"
+          />
+          <div className="add-label">Anniversaire (optionnel)</div>
+          <input
+            className="add-input"
+            style={{ width: '100%' }}
+            type="date"
+            value={addBirthday}
+            onChange={e => setAddBirthday(e.target.value)}
+          />
+          <div className="add-label">Téléphone — pour appeler / WhatsApp (optionnel)</div>
+          <input
+            className="add-input"
+            style={{ width: '100%' }}
+            type="tel"
+            value={addPhone}
+            onChange={e => setAddPhone(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confirmAdd() }}
+            placeholder="+33 6 12 34 56 78"
+          />
+          <div className="add-actions">
+            <button className="add-btn" onClick={confirmAdd}>Ajouter ce proche</button>
+            <button className="add-cancel" onClick={resetAddForm}>✕</button>
           </div>
         </div>
       )}
@@ -607,12 +691,54 @@ export default function Home() {
         </div>
       )}
 
-      {!selected ? (
-        <div className="loader"><p style={{ color: '#64748b', fontSize: '.85rem' }}>Aucun proche. Cherche une ville ci-dessus pour ajouter quelqu&apos;un. 👆</p></div>
+      {proches.length === 0 ? (
+        <div className="ftue">
+          <div className="ftue-arrow">↑ Cherche la ville d&apos;un proche ci-dessus</div>
+          <h2>👋 Bienvenue sur Homeboard</h2>
+          <p>Le tableau qui te garde proche de ceux que tu aimes. Ajoute les gens qui comptent — chacun avec sa ville — et garde un œil sur leur quotidien.</p>
+          <div className="ftue-feats">
+            <div className="ftue-feat"><span>🌦️</span><span>Leur météo et quoi mettre selon le temps</span></div>
+            <div className="ftue-feat"><span>🎂</span><span>Les anniversaires qui approchent</span></div>
+            <div className="ftue-feat"><span>📞</span><span>Les appeler en un tap (WhatsApp / téléphone)</span></div>
+            <div className="ftue-feat"><span>🔗</span><span>Partager ton tableau avec toute la famille</span></div>
+          </div>
+        </div>
+      ) : !selected ? (
+        <div className="loader"><p style={{ color: '#64748b', fontSize: '.85rem' }}>Choisis un proche ci-dessus 👆</p></div>
       ) : loading ? (
         <div className="loader"><div className="spin" /><p style={{ color: '#64748b', fontSize: '.8rem' }}>Chargement météo {selected.name}...</p></div>
       ) : da && de ? (
         <>
+          {/* Carte d'identité du proche */}
+          {(() => {
+            const bd = birthdayInfo(selected.birthday)
+            const wa = selected.phone ? phoneDigits(selected.phone) : ''
+            return (
+              <div className="idcard">
+                <div className="avatar">
+                  {selected.photo ? <img src={selected.photo} alt={selected.name} /> : (selected.emoji || '👤')}
+                </div>
+                <div className="who">
+                  <div className="nm">{selected.name}</div>
+                  <div className="rel">{[selected.relation, selected.city].filter(Boolean).join(' · ')}</div>
+                  {bd && (
+                    <div className="bday">
+                      {bd.days === 0
+                        ? `🎂 C'est son anniversaire aujourd'hui !`
+                        : `🎂 Anniversaire dans ${bd.days} j${bd.turning != null ? ` — ${bd.turning} ans` : ''}`}
+                    </div>
+                  )}
+                </div>
+                {selected.phone && (
+                  <div className="actions">
+                    <a className="id-act" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" title="WhatsApp">💬</a>
+                    <a className="id-act" href={`tel:${selected.phone}`} title="Appeler">📞</a>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Comment s'habiller */}
           <div className="box" style={{ maxWidth: 900, margin: '0 auto 14px' }}>
             <div className="box-hdr"><h2>Comment s&apos;habiller</h2></div>
