@@ -144,8 +144,8 @@ const LS_SYNCED_AT = 'homeboard.syncedAt'
 const LS_FEED = 'homeboard.feed'
 const LS_EVENT = 'homeboard.event'
 
-// Monétisation : mode don (Phase C). Pas de gate — soutien volontaire.
-const GUMROAD_URL = process.env.NEXT_PUBLIC_GUMROAD_URL || ''
+// Monétisation : mode don (Ko-fi). Pas de gate — soutien volontaire.
+const KOFI_URL = process.env.NEXT_PUBLIC_KOFI_URL || ''
 
 let idCounter = 0
 function newId(): string {
@@ -323,11 +323,8 @@ export default function Home() {
   const [eventForm, setEventForm] = useState(false)
   const [evTitle, setEvTitle] = useState('')
   const [evDate, setEvDate] = useState('')
-  const [isPremium, setIsPremium] = useState(false)
-  const [paywall, setPaywall] = useState(false)
-  const [keyInput, setKeyInput] = useState('')
-  const [verifying, setVerifying] = useState(false)
-  const [keyError, setKeyError] = useState('')
+  const [isSupporter, setIsSupporter] = useState(false)
+  const [donModal, setDonModal] = useState(false)
   const [sync, setSync] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'off'>('idle')
 
@@ -462,25 +459,9 @@ export default function Home() {
     setQuery(''); setResults([])
   }
 
-  async function verifyKey() {
-    const key = keyInput.trim()
-    if (!key || verifying) return
-    setVerifying(true); setKeyError('')
-    try {
-      const res = await fetch('/api/license', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
-      })
-      const data = await res.json()
-      if (data.valid) {
-        try { localStorage.setItem(LS_LICENSE, key) } catch { /* */ }
-        setIsPremium(true); setPaywall(false); setKeyInput('')
-      } else {
-        setKeyError(data.message || 'Clé invalide')
-      }
-    } catch { setKeyError('Vérification impossible, réessaie') }
-    setVerifying(false)
+  function markSupported() {
+    try { localStorage.setItem(LS_LICENSE, 'supporter') } catch { /* */ }
+    setIsSupporter(true); setDonModal(false)
   }
   function resetAddForm() {
     setPending(null); setEditingId(null)
@@ -587,7 +568,7 @@ export default function Home() {
         }
       } catch { /* localStorage indisponible */ }
     }
-    try { if (localStorage.getItem(LS_LICENSE)) setIsPremium(true) } catch { /* */ }
+    try { if (localStorage.getItem(LS_LICENSE)) setIsSupporter(true) } catch { /* */ }
     try {
       const rawFeed = localStorage.getItem(LS_FEED)
       if (rawFeed) {
@@ -990,9 +971,9 @@ export default function Home() {
               : '☁️ Synchronisé')
             : '☁️ Activer la sync'}
         </button>
-        {isPremium
-          ? <span className="premium-badge">✨ Premium</span>
-          : <button className="board-act" onClick={() => setPaywall(true)}>✨ Passer en illimité</button>}
+        {isSupporter
+          ? <span className="premium-badge">💛 Merci !</span>
+          : <button className="board-act" onClick={() => setDonModal(true)}>💛 Soutenir</button>}
         {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
 
@@ -1257,34 +1238,24 @@ export default function Home() {
         </div>
       )}
 
-      {/* Paywall Premium */}
-      {paywall && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 300, overflowY: 'auto', padding: 16 }} onClick={() => { setPaywall(false); setKeyError('') }}>
+      {/* Soutien (mode don) */}
+      {donModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 300, overflowY: 'auto', padding: 16 }} onClick={() => setDonModal(false)}>
           <div style={{ background: '#1e293b', borderRadius: 16, maxWidth: 380, margin: '6vh auto 0', padding: 22, position: 'relative', border: '1px solid #fbbf2455' }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => { setPaywall(false); setKeyError('') }} style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
-            <h3 style={{ color: '#fbbf24', fontSize: '1rem', marginBottom: 4 }}>✨ Homeboard Premium</h3>
-            <p style={{ color: '#94a3b8', fontSize: '.78rem', marginBottom: 16 }}>Tes 3 premiers proches sont gratuits. Passe en illimité pour suivre toute la famille — paiement unique, à vie.</p>
+            <button onClick={() => setDonModal(false)} style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            <h3 style={{ color: '#fbbf24', fontSize: '1rem', marginBottom: 4 }}>💛 Soutenir Homeboard</h3>
+            <p style={{ color: '#94a3b8', fontSize: '.78rem', marginBottom: 16 }}>Homeboard est gratuit, et le restera. S&apos;il te garde proche de ceux que tu aimes, tu peux soutenir le projet — ce que tu veux, quand tu veux.</p>
 
-            <div className="pw-feat">👨‍👩‍👧‍👦 Proches <strong>illimités</strong></div>
-            <div className="pw-feat">🔗 Tableau partageable par lien</div>
-            <div className="pw-feat">💛 Tu soutiens un projet indé</div>
+            <div className="pw-feat">☕ Un café <strong>— 3 €</strong></div>
+            <div className="pw-feat">💛 Un coup de pouce <strong>— 10 €</strong></div>
+            <div className="pw-feat">🚀 Tu adores <strong>— 20 €</strong></div>
 
-            {GUMROAD_URL
-              ? <a className="pw-buy" href={GUMROAD_URL} target="_blank" rel="noopener noreferrer" style={{ marginTop: 16 }}>Débloquer — 19€ à vie</a>
-              : <div style={{ marginTop: 16, textAlign: 'center', color: '#64748b', fontSize: '.78rem', padding: '12px', border: '1px dashed #334155', borderRadius: 10 }}>Premium bientôt disponible 🔜</div>}
+            {KOFI_URL
+              ? <a className="pw-buy" href={KOFI_URL} target="_blank" rel="noopener noreferrer" style={{ marginTop: 16 }}>Soutenir sur Ko-fi 💛</a>
+              : <div style={{ marginTop: 16, textAlign: 'center', color: '#64748b', fontSize: '.78rem', padding: '12px', border: '1px dashed #334155', borderRadius: 10 }}>Soutien bientôt disponible 🔜</div>}
 
-            <div className="pw-sep">déjà acheté&nbsp;?</div>
-            <div className="pw-key">
-              <input
-                value={keyInput}
-                onChange={e => setKeyInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') verifyKey() }}
-                placeholder="Colle ta clé de licence"
-                autoComplete="off"
-              />
-              <button onClick={verifyKey} disabled={verifying}>{verifying ? '…' : 'Activer'}</button>
-            </div>
-            {keyError && <div className="pw-err">{keyError}</div>}
+            <div className="pw-sep">déjà soutenu&nbsp;?</div>
+            <button className="board-act" style={{ width: '100%', padding: '9px' }} onClick={markSupported}>✓ J&apos;ai soutenu — masquer ce bouton</button>
           </div>
         </div>
       )}
