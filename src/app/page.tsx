@@ -210,6 +210,8 @@ export default function Home() {
   const [addEmoji, setAddEmoji] = useState('')
   const [addBirthday, setAddBirthday] = useState('')
   const [addPhone, setAddPhone] = useState('')
+  const [addPhoto, setAddPhoto] = useState('') // data URL compressé, local only
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
@@ -345,21 +347,55 @@ export default function Home() {
     setVerifying(false)
   }
   function resetAddForm() {
-    setPending(null); setAddName(''); setAddRelation(''); setAddEmoji(''); setAddBirthday(''); setAddPhone('')
+    setPending(null); setEditingId(null)
+    setAddName(''); setAddRelation(''); setAddEmoji(''); setAddBirthday(''); setAddPhone(''); setAddPhoto('')
+  }
+  function startEdit(p: Proche) {
+    setEditingId(p.id); setPending(null)
+    setAddName(p.name); setAddRelation(p.relation || ''); setAddEmoji(p.emoji || '')
+    setAddBirthday(p.birthday || ''); setAddPhone(p.phone || ''); setAddPhoto(p.photo || '')
   }
   function confirmAdd() {
-    if (!pending) return
-    const name = addName.trim() || pending.city
-    const proche: Proche = {
-      ...pending, name,
+    const common = {
       relation: addRelation.trim() || undefined,
       emoji: addEmoji.trim() || undefined,
       birthday: addBirthday || undefined,
       phone: addPhone.trim() || undefined,
+      photo: addPhoto || undefined,
     }
+    if (editingId) {
+      setProches(prev => prev.map(p => p.id === editingId
+        ? { ...p, name: addName.trim() || p.name, ...common }
+        : p))
+      resetAddForm()
+      return
+    }
+    if (!pending) return
+    const proche: Proche = { ...pending, name: addName.trim() || pending.city, ...common }
     setProches(prev => [...prev, proche])
     setSelectedId(proche.id)
     resetAddForm()
+  }
+  // Photo : redimensionnée (max 256px) + compressée JPEG → data URL léger (~10-30 Ko), stocké en local
+  function onPhotoFile(file: File | undefined) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const max = 256
+        const scale = Math.min(1, max / Math.max(img.width, img.height))
+        const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0, w, h)
+        setAddPhoto(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
   }
   function removeProche(id: string) {
     setProches(prev => {
@@ -522,6 +558,11 @@ export default function Home() {
         .add-input{flex:1;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:.8rem;outline:none}
         .add-input:focus{border-color:#38bdf8}
         .add-emoji{width:48px;text-align:center;flex:none}
+        .add-photo-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+        .add-photo{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:1.5rem;background:#0f172a;border:1px dashed #475569;cursor:pointer;overflow:hidden}
+        .add-photo img{width:100%;height:100%;object-fit:cover}
+        .add-photo-del{background:none;border:none;color:#64748b;font-size:.68rem;cursor:pointer;text-decoration:underline}
+        .add-photo-del:hover{color:#f87171}
         .add-label{font-size:.55rem;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin:8px 2px 3px}
         .add-actions{display:flex;gap:6px;margin-top:10px}
         .add-btn{flex:1;background:#38bdf8;border:none;color:#0f172a;font-weight:700;border-radius:8px;padding:9px 12px;font-size:.78rem;cursor:pointer}
@@ -592,10 +633,19 @@ export default function Home() {
         )}
       </div>
 
-      {/* Formulaire : carte d'identité du proche pour la ville choisie */}
-      {pending && (
+      {/* Formulaire : carte d'identité du proche (ajout OU édition) */}
+      {(pending || editingId) && (
         <div className="add-form">
-          <div className="city">📍 {pending.city}</div>
+          <div className="city">📍 {pending ? pending.city : proches.find(p => p.id === editingId)?.city}{editingId ? ' — modifier' : ''}</div>
+          <div className="add-photo-row">
+            <label className="add-photo" title="Choisir une photo">
+              {addPhoto
+                ? <img src={addPhoto} alt="aperçu" />
+                : <span>{addEmoji || '📷'}</span>}
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onPhotoFile(e.target.files?.[0])} />
+            </label>
+            {addPhoto && <button className="add-photo-del" onClick={() => setAddPhoto('')}>Retirer la photo</button>}
+          </div>
           <div className="add-row">
             <input
               className="add-input add-emoji"
@@ -603,7 +653,7 @@ export default function Home() {
               onChange={e => setAddEmoji(e.target.value)}
               placeholder="🙂"
               maxLength={2}
-              aria-label="Emoji / avatar"
+              aria-label="Emoji (si pas de photo)"
             />
             <input
               className="add-input"
@@ -641,7 +691,7 @@ export default function Home() {
             placeholder="+33 6 12 34 56 78"
           />
           <div className="add-actions">
-            <button className="add-btn" onClick={confirmAdd}>Ajouter ce proche</button>
+            <button className="add-btn" onClick={confirmAdd}>{editingId ? 'Enregistrer' : 'Ajouter ce proche'}</button>
             <button className="add-cancel" onClick={resetAddForm}>✕</button>
           </div>
         </div>
@@ -729,12 +779,11 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-                {selected.phone && (
-                  <div className="actions">
-                    <a className="id-act" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" title="WhatsApp">💬</a>
-                    <a className="id-act" href={`tel:${selected.phone}`} title="Appeler">📞</a>
-                  </div>
-                )}
+                <div className="actions">
+                  {selected.phone && <a className="id-act" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" title="WhatsApp">💬</a>}
+                  {selected.phone && <a className="id-act" href={`tel:${selected.phone}`} title="Appeler">📞</a>}
+                  <button className="id-act" onClick={() => startEdit(selected)} title="Modifier la fiche">✏️</button>
+                </div>
               </div>
             )
           })()}
