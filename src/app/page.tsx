@@ -186,6 +186,13 @@ function birthdayInfo(b?: string): { days: number; turning: number | null } | nu
   return { days, turning }
 }
 
+// Libellé principal = la PERSONNE d'abord. Si le nom est vide ou vaut la ville
+// (rempli par défaut à l'ajout), on bascule sur le Lien (ex. "Papilou").
+function personName(p: Proche): string {
+  if (p.name && p.name !== p.city) return p.name
+  return p.relation || p.name || p.city
+}
+
 // Numéro → lien WhatsApp (chiffres seuls, + transformé en 00 retiré) et lien d'appel
 function phoneDigits(phone: string): string {
   return phone.replace(/[^\d]/g, '')
@@ -335,7 +342,7 @@ export default function Home() {
   const [aromeH, setAromeH] = useState<HourlyData | null>(null)
   const [ecmwfH, setEcmwfH] = useState<HourlyData | null>(null)
   const [aqH, setAqH] = useState<AqHourly | null>(null)
-  const [procheWx, setProcheWx] = useState<Record<string, { code: number; temp: number }>>({}) // météo courante par proche (code couleur)
+  const [procheWx, setProcheWx] = useState<Record<string, { code: number; temp: number; isDay: number; offset: number }>>({}) // pulse par proche : météo + heure locale
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [feed, setFeed] = useState<TgMessage[]>([])
   const [showArchives, setShowArchives] = useState(false)
@@ -442,13 +449,14 @@ export default function Home() {
     const lons = proches.map(p => p.lon).join(',')
     const fetchWx = async () => {
       try {
-        const d = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=weather_code,temperature_2m`).then(r => r.json())
+        const d = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=weather_code,temperature_2m,is_day&timezone=auto`).then(r => r.json())
         if (cancelled) return
         const arr = Array.isArray(d) ? d : [d]
-        const map: Record<string, { code: number; temp: number }> = {}
+        const map: Record<string, { code: number; temp: number; isDay: number; offset: number }> = {}
         proches.forEach((p, i) => {
-          const cur = arr[i]?.current
-          if (cur) map[p.id] = { code: cur.weather_code, temp: cur.temperature_2m }
+          const o = arr[i]
+          const cur = o?.current
+          if (cur) map[p.id] = { code: cur.weather_code, temp: cur.temperature_2m, isDay: cur.is_day ?? 1, offset: o.utc_offset_seconds ?? 0 }
         })
         setProcheWx(map)
       } catch { /* */ }
@@ -834,7 +842,7 @@ export default function Home() {
 
   return (
     <>
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         *{margin:0;padding:0;box-sizing:border-box}
         body{background:#0f172a;color:#e2e8f0;font-family:'Segoe UI',sans-serif;padding:16px;min-height:100vh}
         h1{text-align:center;font-size:1.25rem;color:#38bdf8;letter-spacing:2px;margin-bottom:4px}
@@ -867,17 +875,19 @@ export default function Home() {
         .search-country{font-size:.65rem;color:#64748b}
         .search-item:hover .search-country{color:#0f172a}
         .pgrid{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:8px}
-        .pcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:96px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:11px 8px 9px;cursor:pointer;transition:transform .15s,border-color .15s}
+        .pcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:124px;background:#1e293b;border:1px solid #334155;border-radius:14px;padding:14px 8px 10px;cursor:pointer;transition:transform .15s,border-color .15s}
         .pcard:hover{transform:translateY(-2px)}
         .pcard.active{background:#0b3a52;border-color:#38bdf8}
-        .pcard .pc-ava{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.35rem;background:#0f172a;border:1px solid #334155;overflow:hidden;margin-bottom:3px}
-        .pcard .pc-ava img{width:100%;height:100%;object-fit:cover}
+        .pcard .pc-ava{position:relative;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.45rem;background:#0f172a;border:1px solid #334155;overflow:hidden;margin-bottom:4px;animation:pulsering 2.4s ease-out infinite}
+        .pcard .pc-ava img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+        @keyframes pulsering{0%{box-shadow:0 0 0 0 var(--pulse,#33415588)}70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
+        .pcard .pc-pulse{font-size:.6rem;color:#94a3b8;text-align:center;margin-top:4px;line-height:1.3;max-width:100%}
+        .pcard .pc-pulse .pc-clock{color:#64748b}
         .pcard .pc-name{font-size:.88rem;font-weight:700;color:#e2e8f0;line-height:1.1;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .pcard .pc-rel{font-size:.72rem;font-weight:700;color:#7dd3fc;text-align:center;line-height:1.15;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .pcard .pc-city{font-size:.58rem;color:#64748b;font-weight:400;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .pcard.active .pc-rel{color:#bae6fd}
         .pcard.active .pc-city{color:#94a3b8}
-        .pcard .pc-wx{font-size:.6rem;color:#64748b;margin-top:2px}
         .pcard .pc-del{position:absolute;top:4px;right:5px;display:flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:.62rem;line-height:1;color:#64748b;background:rgba(148,163,184,.12);opacity:0;transition:opacity .15s}
         .pcard:hover .pc-del{opacity:1}
         .pcard .pc-del:hover{background:#ef4444;color:#fff}
@@ -961,7 +971,7 @@ export default function Home() {
         .loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;gap:16px}
         .spin{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#38bdf8;border-radius:50%;animation:sp .8s linear infinite}
         @keyframes sp{to{transform:rotate(360deg)}}
-      `}</style>
+      ` }} />
 
       {/* Confirmation claire quand une famille vient d'être chargée (senior-friendly) */}
       {loadedMsg && (
@@ -973,7 +983,7 @@ export default function Home() {
       )}
 
       <h1>HOMEBOARD</h1>
-      <div className="sub">📍 {selected ? (selected.name === selected.city ? selected.city : `${selected.name} · ${selected.city}`) : 'Aucun proche'}</div>
+      <div className="sub">📍 {selected ? (personName(selected) === selected.city ? selected.city : `${personName(selected)} · ${selected.city}`) : 'Aucun proche'}</div>
 
       {/* Ajouter un proche : rechercher une ville */}
       <div className="search-wrap">
@@ -1078,6 +1088,8 @@ export default function Home() {
           .sort((a, b) => ((b.st?.rank ?? 0) - (a.st?.rank ?? 0)) || (a.i - b.i))
           .map(({ p, st }) => {
           const wx = procheWx[p.id]
+          const pname = personName(p)
+          const showRel = p.relation && p.relation !== pname
           return (
             <button
               key={p.id}
@@ -1093,11 +1105,17 @@ export default function Home() {
                 onClick={e => { e.stopPropagation(); removeProche(p.id) }}
               >✕</span>
               {st && <span className="pc-badge" style={{ background: st.col }}>{st.emoji}</span>}
-              <span className="pc-ava">{p.photo ? <img src={p.photo} alt={p.name} /> : (p.emoji || '👤')}</span>
-              <span className="pc-name">{p.name}</span>
-              {p.relation && <span className="pc-rel">{p.relation}</span>}
-              <span className="pc-city">{p.city}</span>
-              {!st && wx && <span className="pc-wx">{WMO[wx.code] || ''} {Math.round(wx.temp)}°</span>}
+              <span className="pc-ava" style={{ ['--pulse']: (st ? st.col : '#334155') + '88' } as React.CSSProperties}>
+                {p.photo ? <img src={p.photo} alt={p.name} /> : (p.emoji || '👤')}
+              </span>
+              <span className="pc-name">{pname}</span>
+              {showRel && <span className="pc-rel">{p.relation}</span>}
+              {p.city !== pname && <span className="pc-city">{p.city}</span>}
+              {wx && (
+                <span className="pc-pulse">
+                  {WMO[wx.code] || ''} {Math.round(wx.temp)}° · <span className="pc-clock">{procheClock(wx.offset, nowMs || Date.now())}</span> {wx.isDay ? '☀️' : '🌙'}
+                </span>
+              )}
             </button>
           )
         })}
@@ -1243,6 +1261,8 @@ export default function Home() {
           {/* Carte d'identité du proche */}
           {(() => {
             const bd = birthdayInfo(selected.birthday)
+            const pname = personName(selected)
+            const showRel = selected.relation && selected.relation !== pname
             const wa = selected.phone ? phoneDigits(selected.phone) : ''
             const feteToday = isNameDayToday(selected.name)
             const lastSeen = relativeSince(selected.lastContact)
@@ -1252,10 +1272,10 @@ export default function Home() {
                   {selected.photo ? <img src={selected.photo} alt={selected.name} /> : (selected.emoji || '👤')}
                 </div>
                 <div className="who">
-                  <div className="nm">{selected.name}</div>
+                  <div className="nm">{pname}</div>
                   <div className="rel">
-                    {selected.relation && <span className="rel-lien">{selected.relation}</span>}
-                    {selected.relation && selected.city ? <span className="rel-dim"> · {selected.city}</span> : selected.city ? <span className="rel-dim">{selected.city}</span> : null}
+                    {showRel && <span className="rel-lien">{selected.relation}</span>}
+                    {showRel && selected.city ? <span className="rel-dim"> · {selected.city}</span> : (selected.city && selected.city !== pname) ? <span className="rel-dim">{selected.city}</span> : null}
                   </div>
                   {localInfo && (
                     <div className="idmeta">
