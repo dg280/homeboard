@@ -873,8 +873,10 @@ export default function Home() {
         .pcard .pc-ava{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.35rem;background:#0f172a;border:1px solid #334155;overflow:hidden;margin-bottom:3px}
         .pcard .pc-ava img{width:100%;height:100%;object-fit:cover}
         .pcard .pc-name{font-size:.88rem;font-weight:700;color:#e2e8f0;line-height:1.1;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .pcard .pc-city{font-size:.62rem;color:#94a3b8;font-weight:400;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .pcard.active .pc-city{color:#7dd3fc}
+        .pcard .pc-rel{font-size:.72rem;font-weight:700;color:#7dd3fc;text-align:center;line-height:1.15;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .pcard .pc-city{font-size:.58rem;color:#64748b;font-weight:400;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .pcard.active .pc-rel{color:#bae6fd}
+        .pcard.active .pc-city{color:#94a3b8}
         .pcard .pc-wx{font-size:.6rem;color:#64748b;margin-top:2px}
         .pcard .pc-del{position:absolute;top:4px;right:5px;display:flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:.62rem;line-height:1;color:#64748b;background:rgba(148,163,184,.12);opacity:0;transition:opacity .15s}
         .pcard:hover .pc-del{opacity:1}
@@ -921,6 +923,8 @@ export default function Home() {
         .idcard .who{flex:1;min-width:0}
         .idcard .who .nm{font-size:1.05rem;font-weight:700;color:#e2e8f0}
         .idcard .who .rel{font-size:.68rem;color:#64748b}
+        .idcard .who .rel .rel-lien{font-size:.82rem;font-weight:700;color:#7dd3fc}
+        .idcard .who .rel .rel-dim{color:#64748b}
         .idcard .idmeta{font-size:.68rem;color:#94a3b8;margin-top:3px}
         .idcard .idmeta .dim{color:#475569}
         .idcard .bday{font-size:.72rem;color:#fbbf24;margin-top:3px}
@@ -1091,6 +1095,7 @@ export default function Home() {
               {st && <span className="pc-badge" style={{ background: st.col }}>{st.emoji}</span>}
               <span className="pc-ava">{p.photo ? <img src={p.photo} alt={p.name} /> : (p.emoji || '👤')}</span>
               <span className="pc-name">{p.name}</span>
+              {p.relation && <span className="pc-rel">{p.relation}</span>}
               <span className="pc-city">{p.city}</span>
               {!st && wx && <span className="pc-wx">{WMO[wx.code] || ''} {Math.round(wx.temp)}°</span>}
             </button>
@@ -1248,7 +1253,10 @@ export default function Home() {
                 </div>
                 <div className="who">
                   <div className="nm">{selected.name}</div>
-                  <div className="rel">{[selected.relation, selected.city].filter(Boolean).join(' · ')}</div>
+                  <div className="rel">
+                    {selected.relation && <span className="rel-lien">{selected.relation}</span>}
+                    {selected.relation && selected.city ? <span className="rel-dim"> · {selected.city}</span> : selected.city ? <span className="rel-dim">{selected.city}</span> : null}
+                  </div>
                   {localInfo && (
                     <div className="idmeta">
                       🕐 {procheClock(localInfo.offset, nowMs || Date.now())} <span className="dim">({offsetDiffLabel(localInfo.offset)})</span>
