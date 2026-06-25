@@ -317,6 +317,9 @@ export default function Home() {
   const [localInfo, setLocalInfo] = useState<{ offset: number; tz: string; sunrise: string; sunset: string } | null>(null)
   const [nowMs, setNowMs] = useState(0) // horloge ; 0 au 1er rendu (SSR-safe), mis à jour côté client
   const [shareMsg, setShareMsg] = useState('')
+  const [joinOpen, setJoinOpen] = useState(false)
+  const [joinCode, setJoinCode] = useState('')
+  const [joinErr, setJoinErr] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -582,6 +585,26 @@ export default function Home() {
       setShareMsg('Lien dans la barre d\'adresse')
     }
     setTimeout(() => setShareMsg(''), 2500)
+  }
+
+  // Rejoindre une famille : récupérer son tableau depuis un lien de partage ou un code
+  function extractBoardCode(input: string): string | null {
+    const s = input.trim()
+    if (!s) return null
+    const h = s.indexOf('#b=')
+    if (h >= 0) return s.slice(h + 3)
+    if (s.startsWith('b=')) return s.slice(2)
+    return s // code collé seul
+  }
+  function joinFamily() {
+    const code = extractBoardCode(joinCode)
+    const decoded = code ? decodeBoard(code) : null
+    if (!decoded || decoded.proches.length === 0) { setJoinErr('Lien ou code invalide.'); return }
+    if (proches.length > 0 && !window.confirm('Remplacer ton tableau actuel par celui de cette famille ?')) return
+    setProches(decoded.proches)
+    setSelectedId(decoded.selectedId)
+    setFamilyEvent(decoded.event)
+    setJoinOpen(false); setJoinCode(''); setJoinErr('')
   }
 
   // Hydratation au montage : lien partagé (#b=...) prioritaire, sinon localStorage, sinon seed
@@ -1038,6 +1061,7 @@ export default function Home() {
       </div>
       <div className="board-bar">
         {proches.length > 0 && <button className="board-act" onClick={shareBoard}>🔗 Partager ce tableau</button>}
+        <button className="board-act" onClick={() => { setJoinErr(''); setJoinCode(''); setJoinOpen(true) }} title="Récupérer le tableau d'une famille via son lien de partage">👪 Rejoindre une famille</button>
         <button className="board-act" onClick={toggleSync} title="Synchroniser entre tes appareils via Telegram">
           {sync
             ? (syncState === 'saving' ? '☁️ Sync…'
@@ -1051,6 +1075,30 @@ export default function Home() {
           : <button className="board-act" onClick={() => setDonModal(true)}>💛 Soutenir</button>}
         {shareMsg && <span className="board-msg">{shareMsg}</span>}
       </div>
+
+      {/* Rejoindre une famille : coller le lien/code de partage pour récupérer son tableau */}
+      {joinOpen && (
+        <div className="add-form" style={{ maxWidth: 420 }}>
+          <div className="city">👪 Rejoindre une famille</div>
+          <p style={{ fontSize: '.72rem', color: '#94a3b8', margin: '0 2px 8px', lineHeight: 1.4 }}>
+            Colle le lien de partage envoyé par ta famille (ou le code) pour récupérer son tableau.
+            Pour des mises à jour en continu, active ensuite ☁️ la sync.
+          </p>
+          <textarea
+            className="add-input"
+            style={{ width: '100%', minHeight: 64, resize: 'vertical' }}
+            value={joinCode}
+            onChange={e => { setJoinCode(e.target.value); setJoinErr('') }}
+            placeholder="https://…/#b=…  ou le code"
+            autoFocus
+          />
+          {joinErr && <div className="pw-err">{joinErr}</div>}
+          <div className="add-actions">
+            <button className="add-btn" onClick={joinFamily}>Rejoindre</button>
+            <button className="add-cancel" onClick={() => { setJoinOpen(false); setJoinCode(''); setJoinErr('') }}>✕</button>
+          </div>
+        </div>
+      )}
 
       {/* Événement familial partagé (compte à rebours) */}
       {(() => {
@@ -1134,6 +1182,13 @@ export default function Home() {
             <div className="ftue-feat"><span>🎂</span><span>Les anniversaires qui approchent</span></div>
             <div className="ftue-feat"><span>📞</span><span>Les appeler en un tap (WhatsApp / téléphone)</span></div>
             <div className="ftue-feat"><span>🔗</span><span>Partager ton tableau avec toute la famille</span></div>
+          </div>
+          <div style={{ fontSize: '.8rem', color: '#94a3b8' }}>
+            Déjà une famille sur Homeboard ?{' '}
+            <button
+              onClick={() => { setJoinErr(''); setJoinCode(''); setJoinOpen(true) }}
+              style={{ background: 'none', border: 'none', color: '#38bdf8', font: 'inherit', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+            >👪 Rejoins-la</button>
           </div>
         </div>
       ) : !selected ? (
