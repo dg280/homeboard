@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import QRCode from 'qrcode'
 import { isNameDayToday } from './namedays'
 
 
@@ -317,9 +318,14 @@ export default function Home() {
   const [localInfo, setLocalInfo] = useState<{ offset: number; tz: string; sunrise: string; sunset: string } | null>(null)
   const [nowMs, setNowMs] = useState(0) // horloge ; 0 au 1er rendu (SSR-safe), mis à jour côté client
   const [shareMsg, setShareMsg] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareUrl, setShareUrl] = useState('')
+  const [shareQr, setShareQr] = useState('')
+  const [shareErr, setShareErr] = useState('')
   const [joinOpen, setJoinOpen] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joinErr, setJoinErr] = useState('')
+  const [loadedMsg, setLoadedMsg] = useState('') // toast "Famille chargée"
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -577,12 +583,24 @@ export default function Home() {
   async function shareBoard() {
     if (proches.length === 0) return
     const url = `${window.location.origin}${window.location.pathname}#b=${encodeBoard(proches, selectedId, familyEvent)}`
+    setShareUrl(url); setShareQr(''); setShareErr(''); setShareOpen(true)
     try {
-      await navigator.clipboard.writeText(url)
+      const dataUrl = await QRCode.toDataURL(url, {
+        margin: 1, width: 360, errorCorrectionLevel: 'M',
+        color: { dark: '#0f172a', light: '#ffffff' },
+      })
+      setShareQr(dataUrl)
+    } catch {
+      // Lien trop long pour tenir dans un QR (famille très nombreuse)
+      setShareErr('Tableau trop grand pour un QR — utilise le lien à copier ci-dessous.')
+    }
+  }
+  async function copyShareUrl() {
+    try {
+      await navigator.clipboard.writeText(shareUrl)
       setShareMsg('Lien copié ✓')
     } catch {
-      window.location.hash = `b=${encodeBoard(proches, selectedId, familyEvent)}`
-      setShareMsg('Lien dans la barre d\'adresse')
+      setShareMsg('Copie impossible — sélectionne le lien manuellement')
     }
     setTimeout(() => setShareMsg(''), 2500)
   }
@@ -605,6 +623,8 @@ export default function Home() {
     setSelectedId(decoded.selectedId)
     setFamilyEvent(decoded.event)
     setJoinOpen(false); setJoinCode(''); setJoinErr('')
+    const n = decoded.proches.length
+    setLoadedMsg(`✓ Famille chargée — ${n} proche${n > 1 ? 's' : ''}`)
   }
 
   // Hydratation au montage : lien partagé (#b=...) prioritaire, sinon localStorage, sinon seed
@@ -615,6 +635,8 @@ export default function Home() {
     if (shared) {
       setProches(shared.proches); setSelectedId(shared.selectedId); setFamilyEvent(shared.event)
       history.replaceState(null, '', window.location.pathname + window.location.search)
+      const n = shared.proches.length
+      setLoadedMsg(`✓ Famille chargée — ${n} proche${n > 1 ? 's' : ''}`)
     } else {
       try {
         const raw = localStorage.getItem(LS_PROCHES)
@@ -655,6 +677,13 @@ export default function Home() {
       else localStorage.removeItem(LS_EVENT)
     } catch { /* localStorage indisponible */ }
   }, [proches, selectedId, familyEvent])
+
+  // Toast "Famille chargée" : s'efface tout seul après 5 s
+  useEffect(() => {
+    if (!loadedMsg) return
+    const t = setTimeout(() => setLoadedMsg(''), 5000)
+    return () => clearTimeout(t)
+  }, [loadedMsg])
 
   // ── Sync Telegram (gratuite) ────────────────────────────────────────────────
   const pushBoard = useCallback(async () => {
@@ -929,6 +958,15 @@ export default function Home() {
         .spin{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#38bdf8;border-radius:50%;animation:sp .8s linear infinite}
         @keyframes sp{to{transform:rotate(360deg)}}
       `}</style>
+
+      {/* Confirmation claire quand une famille vient d'être chargée (senior-friendly) */}
+      {loadedMsg && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 400, display: 'flex', justifyContent: 'center', padding: '12px 16px', pointerEvents: 'none' }}>
+          <div style={{ background: '#0a2a18', border: '1px solid #4ade80', color: '#4ade80', borderRadius: 12, padding: '12px 22px', fontSize: '1rem', fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
+            {loadedMsg}
+          </div>
+        </div>
+      )}
 
       <h1>HOMEBOARD</h1>
       <div className="sub">📍 {selected ? (selected.name === selected.city ? selected.city : `${selected.name} · ${selected.city}`) : 'Aucun proche'}</div>
@@ -1364,6 +1402,28 @@ export default function Home() {
             <button onClick={() => setModal(null)} style={{ position: 'absolute', top: 10, right: 14, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             <h3 style={{ color: '#38bdf8', fontSize: '.85rem', letterSpacing: 1, marginBottom: 12 }}>{modal.title}</h3>
             <div style={{ fontSize: '.72rem' }} dangerouslySetInnerHTML={{ __html: modal.html }} />
+          </div>
+        </div>
+      )}
+
+      {/* Inviter la famille : QR (généré en local, aucune donnée envoyée à un tiers) + lien */}
+      {shareOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 300, overflowY: 'auto', padding: 16 }} onClick={() => setShareOpen(false)}>
+          <div style={{ background: '#1e293b', borderRadius: 16, maxWidth: 360, margin: '4vh auto 0', padding: 22, position: 'relative', border: '1px solid #334155', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShareOpen(false)} style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            <h3 style={{ color: '#38bdf8', fontSize: '1.05rem', marginBottom: 6 }}>👪 Inviter la famille</h3>
+            <p style={{ color: '#94a3b8', fontSize: '.82rem', marginBottom: 16, lineHeight: 1.45 }}>
+              Vise ce QR code avec l&apos;appareil photo du téléphone, puis tape sur le lien qui apparaît. La famille s&apos;ouvre toute seule.
+            </p>
+            {shareQr
+              ? <img src={shareQr} alt="QR code d'invitation" style={{ width: 248, height: 248, borderRadius: 12, background: '#fff', padding: 8 }} />
+              : shareErr
+                ? <div style={{ color: '#fbbf24', fontSize: '.8rem', padding: '24px 0' }}>{shareErr}</div>
+                : <div style={{ color: '#64748b', fontSize: '.8rem', padding: '24px 0' }}>Génération du QR…</div>}
+            <div style={{ marginTop: 16 }}>
+              <button className="board-act" style={{ width: '100%', padding: 11, fontSize: '.85rem' }} onClick={copyShareUrl}>🔗 Copier le lien (pour WhatsApp / SMS)</button>
+              {shareMsg && <div style={{ color: '#4ade80', fontSize: '.78rem', marginTop: 8 }}>{shareMsg}</div>}
+            </div>
           </div>
         </div>
       )}
