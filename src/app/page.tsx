@@ -102,6 +102,16 @@ function aqInfo(aqi: number | null) {
   return { lbl: 'Très mauvais', col: '#ef4444', act: 'Éviter toute activité extérieure' }
 }
 
+// Phénomène météo notable (code WMO) → emoji + couleur, pour le code couleur des proches
+function weatherAlert(code: number): { emoji: string; col: string } | null {
+  if ([95, 96, 99].includes(code)) return { emoji: '⛈', col: '#a855f7' }            // orage
+  if ([65, 67, 82].includes(code)) return { emoji: '🌧', col: '#f97316' }            // pluie forte
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return { emoji: '❄️', col: '#7dd3fc' } // neige
+  if ([51, 53, 55, 61, 63, 80, 81].includes(code)) return { emoji: '🌧', col: '#38bdf8' } // pluie
+  if ([45, 48].includes(code)) return { emoji: '🌫', col: '#94a3b8' }                // brouillard
+  return null
+}
+
 // ── Types API ────────────────────────────────────────────────────────────────
 interface DailyData {
   time: string[]; weathercode: number[]; temperature_2m_max: number[]; temperature_2m_min: number[]
@@ -316,6 +326,7 @@ export default function Home() {
   const [aromeH, setAromeH] = useState<HourlyData | null>(null)
   const [ecmwfH, setEcmwfH] = useState<HourlyData | null>(null)
   const [aqH, setAqH] = useState<AqHourly | null>(null)
+  const [procheWx, setProcheWx] = useState<Record<string, { code: number; temp: number }>>({}) // météo courante par proche (code couleur)
   const [modal, setModal] = useState<{ title: string; html: string } | null>(null)
   const [feed, setFeed] = useState<TgMessage[]>([])
   const [showArchives, setShowArchives] = useState(false)
@@ -412,6 +423,32 @@ export default function Home() {
     const iv = setInterval(loadMessages, 30000)
     return () => clearInterval(iv)
   }, [loadMessages])
+
+  // Météo courante de CHAQUE proche (1 seul appel multi-coordonnées) pour le code couleur
+  const prochesGeoKey = proches.map(p => `${p.id}:${p.lat}:${p.lon}`).join('|')
+  useEffect(() => {
+    if (proches.length === 0) { setProcheWx({}); return }
+    let cancelled = false
+    const lats = proches.map(p => p.lat).join(',')
+    const lons = proches.map(p => p.lon).join(',')
+    const fetchWx = async () => {
+      try {
+        const d = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=weather_code,temperature_2m`).then(r => r.json())
+        if (cancelled) return
+        const arr = Array.isArray(d) ? d : [d]
+        const map: Record<string, { code: number; temp: number }> = {}
+        proches.forEach((p, i) => {
+          const cur = arr[i]?.current
+          if (cur) map[p.id] = { code: cur.weather_code, temp: cur.temperature_2m }
+        })
+        setProcheWx(map)
+      } catch { /* */ }
+    }
+    fetchWx()
+    const iv = setInterval(fetchWx, 1800000) // 30 min
+    return () => { cancelled = true; clearInterval(iv) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prochesGeoKey])
 
   // Wake Lock : empêcher la mise en veille de l'écran (usage mural)
   // Réacquis quand l'onglet redevient visible (le verrou saute en arrière-plan)
@@ -723,6 +760,26 @@ export default function Home() {
     setModal({ title: `${dateStr} — détail`, html: rows + outfitHtml })
   }
 
+  // Code couleur d'un proche selon l'info la plus saillante le concernant (priorité = rank décroissant)
+  function procheStatus(p: Proche): { emoji: string; col: string; why: string; rank: number } | null {
+    const bd = birthdayInfo(p.birthday)
+    if (bd && bd.days === 0) return { emoji: '🎂', col: '#fbbf24', why: 'Anniversaire aujourd’hui', rank: 6 }
+    if (isNameDayToday(p.name)) return { emoji: '🎉', col: '#f472b6', why: 'C’est sa fête', rank: 5 }
+    if (bd && bd.days <= 7) return { emoji: '🎂', col: '#f59e0b', why: `Anniversaire dans ${bd.days} j`, rank: 4 }
+    const cut = Date.now() / 1000 - 3 * 86400
+    const nameLc = p.name.toLowerCase()
+    if (feed.some(m => m.from && m.date >= cut && m.from.toLowerCase().includes(nameLc)))
+      return { emoji: '💬', col: '#38bdf8', why: 'Nouveau message', rank: 3 }
+    const wx = procheWx[p.id]
+    if (wx) {
+      if (wx.temp >= 33) return { emoji: '🥵', col: '#f97316', why: `Canicule (${Math.round(wx.temp)}°)`, rank: 2 }
+      if (wx.temp <= 0) return { emoji: '🥶', col: '#38bdf8', why: `Gel (${Math.round(wx.temp)}°)`, rank: 2 }
+      const wa = weatherAlert(wx.code)
+      if (wa) return { emoji: wa.emoji, col: wa.col, why: WMO_LBL[wx.code] || 'Météo notable', rank: 2 }
+    }
+    return null
+  }
+
   return (
     <>
       <style>{`
@@ -757,13 +814,20 @@ export default function Home() {
         .search-item.muted:hover{background:#1e293b;color:#64748b}
         .search-country{font-size:.65rem;color:#64748b}
         .search-item:hover .search-country{color:#0f172a}
-        .city-sel{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:8px}
-        .city-btn{display:inline-flex;align-items:center;gap:6px;background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:6px 10px 6px 14px;font-size:.72rem;cursor:pointer;transition:.2s}
-        .city-btn:hover,.city-btn.active{background:#38bdf8;color:#0f172a;font-weight:700;border-color:#38bdf8}
-        .city-btn .pc-city{font-size:.6rem;opacity:.7;font-weight:400}
-        .pc-del{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;font-size:.7rem;line-height:1;color:#64748b;background:rgba(148,163,184,.15)}
-        .city-btn.active .pc-del{color:#0f172a;background:rgba(15,23,42,.25)}
-        .pc-del:hover{background:#ef4444;color:#fff}
+        .pgrid{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:8px}
+        .pcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:96px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:11px 8px 9px;cursor:pointer;transition:transform .15s,border-color .15s}
+        .pcard:hover{transform:translateY(-2px)}
+        .pcard.active{background:#0b3a52;border-color:#38bdf8}
+        .pcard .pc-ava{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.35rem;background:#0f172a;border:1px solid #334155;overflow:hidden;margin-bottom:3px}
+        .pcard .pc-ava img{width:100%;height:100%;object-fit:cover}
+        .pcard .pc-name{font-size:.88rem;font-weight:700;color:#e2e8f0;line-height:1.1;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .pcard .pc-city{font-size:.62rem;color:#94a3b8;font-weight:400;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .pcard.active .pc-city{color:#7dd3fc}
+        .pcard .pc-wx{font-size:.6rem;color:#64748b;margin-top:2px}
+        .pcard .pc-del{position:absolute;top:4px;right:5px;display:flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:.62rem;line-height:1;color:#64748b;background:rgba(148,163,184,.12);opacity:0;transition:opacity .15s}
+        .pcard:hover .pc-del{opacity:1}
+        .pcard .pc-del:hover{background:#ef4444;color:#fff}
+        .pcard .pc-badge{position:absolute;top:-7px;left:-7px;width:23px;height:23px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.8rem;box-shadow:0 1px 5px rgba(0,0,0,.5)}
         .board-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:16px;flex-wrap:wrap}
         .board-act{background:none;border:1px solid #334155;color:#64748b;border-radius:8px;padding:5px 12px;font-size:.65rem;cursor:pointer;transition:.2s}
         .board-act:hover{border-color:#38bdf8;color:#38bdf8}
@@ -942,24 +1006,35 @@ export default function Home() {
         </div>
       )}
 
-      {/* Mur des proches */}
-      <div className="city-sel">
-        {proches.map(p => (
-          <button
-            key={p.id}
-            className={`city-btn ${selectedId === p.id ? 'active' : ''}`}
-            onClick={() => setSelectedId(p.id)}
-            title={p.city}
-          >
-            <span>{p.name}{p.name !== p.city && <span className="pc-city"> · {p.city}</span>}</span>
-            <span
-              className="pc-del"
-              role="button"
-              aria-label={`Retirer ${p.name}`}
-              onClick={e => { e.stopPropagation(); removeProche(p.id) }}
-            >✕</span>
-          </button>
-        ))}
+      {/* Mur des proches — prénom en avant, ville dessous, code couleur ; triés par saillance */}
+      <div className="pgrid">
+        {proches
+          .map((p, i) => ({ p, i, st: procheStatus(p) }))
+          .sort((a, b) => ((b.st?.rank ?? 0) - (a.st?.rank ?? 0)) || (a.i - b.i))
+          .map(({ p, st }) => {
+          const wx = procheWx[p.id]
+          return (
+            <button
+              key={p.id}
+              className={`pcard ${selectedId === p.id ? 'active' : ''}`}
+              onClick={() => setSelectedId(p.id)}
+              title={st ? `${p.city} — ${st.why}` : p.city}
+              style={st ? { borderColor: st.col, boxShadow: `0 0 0 1px ${st.col}55` } : undefined}
+            >
+              <span
+                className="pc-del"
+                role="button"
+                aria-label={`Retirer ${p.name}`}
+                onClick={e => { e.stopPropagation(); removeProche(p.id) }}
+              >✕</span>
+              {st && <span className="pc-badge" style={{ background: st.col }}>{st.emoji}</span>}
+              <span className="pc-ava">{p.photo ? <img src={p.photo} alt={p.name} /> : (p.emoji || '👤')}</span>
+              <span className="pc-name">{p.name}</span>
+              <span className="pc-city">{p.city}</span>
+              {!st && wx && <span className="pc-wx">{WMO[wx.code] || ''} {Math.round(wx.temp)}°</span>}
+            </button>
+          )
+        })}
       </div>
       <div className="board-bar">
         {proches.length > 0 && <button className="board-act" onClick={shareBoard}>🔗 Partager ce tableau</button>}
