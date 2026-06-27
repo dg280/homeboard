@@ -113,6 +113,35 @@ function weatherAlert(code: number): { emoji: string; col: string } | null {
   return null
 }
 
+// ── Marées ───────────────────────────────────────────────────────────────────
+// Extrait les heures de marée haute/basse depuis la hauteur d'eau horaire
+// (Open-Meteo Marine, sea_level_height_msl, sans clé). On détecte les extrema
+// locaux et on affine à la minute par interpolation parabolique du sommet.
+interface TideEvent { type: 'haute' | 'basse'; label: string; msLocal: number }
+function extractTides(times: string[], levels: (number | null)[]): { events: TideEvent[]; amplitude: number } | null {
+  const n = Math.min(times.length, levels.length)
+  const vals: { t: string; v: number; i: number }[] = []
+  for (let i = 0; i < n; i++) { if (levels[i] != null) vals.push({ t: times[i], v: levels[i] as number, i }) }
+  if (vals.length < 5) return null
+  const lv = vals.map(x => x.v)
+  const amplitude = Math.max(...lv) - Math.min(...lv)
+  const events: TideEvent[] = []
+  for (let k = 1; k < vals.length - 1; k++) {
+    if (vals[k].i - vals[k - 1].i !== 1 || vals[k + 1].i - vals[k].i !== 1) continue // heures contiguës
+    const y0 = vals[k - 1].v, y1 = vals[k].v, y2 = vals[k + 1].v
+    const isMax = y1 >= y0 && y1 >= y2 && (y1 > y0 || y1 > y2)
+    const isMin = y1 <= y0 && y1 <= y2 && (y1 < y0 || y1 < y2)
+    if (!isMax && !isMin) continue
+    const denom = y0 - 2 * y1 + y2
+    const shift = denom !== 0 ? 0.5 * (y0 - y2) / denom : 0 // décalage du sommet en heures, [-0.5, 0.5]
+    const msLocal = Date.parse(vals[k].t + ':00Z') + shift * 3600000
+    const d = new Date(msLocal)
+    const label = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+    events.push({ type: isMax ? 'haute' : 'basse', label, msLocal })
+  }
+  return { events, amplitude }
+}
+
 // ── Types API ────────────────────────────────────────────────────────────────
 interface DailyData {
   time: string[]; weathercode: number[]; temperature_2m_max: number[]; temperature_2m_min: number[]
@@ -323,6 +352,7 @@ export default function Home() {
   const [addLastContact, setAddLastContact] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [localInfo, setLocalInfo] = useState<{ offset: number; tz: string; sunrise: string; sunset: string } | null>(null)
+  const [tides, setTides] = useState<{ events: TideEvent[]; offset: number } | null>(null) // marées (villes côtières à marée notable)
   const [nowMs, setNowMs] = useState(0) // horloge ; 0 au 1er rendu (SSR-safe), mis à jour côté client
   const [shareMsg, setShareMsg] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
@@ -424,6 +454,24 @@ export default function Home() {
         sunset: d.daily?.sunset?.[0] ?? '',
       })
     }).catch(() => { if (!cancelled) setLocalInfo(null) })
+    return () => { cancelled = true }
+  }, [selected?.id, selected?.lat, selected?.lon])
+
+  // Marées chez le proche : seulement si ville côtière à marée notable.
+  // Open-Meteo Marine (sans clé) renvoie la hauteur d'eau ; vide à l'intérieur
+  // des terres, et amplitude négligeable en Méditerranée → on n'affiche rien.
+  useEffect(() => {
+    if (!selected) { setTides(null); return }
+    let cancelled = false
+    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${selected.lat}&longitude=${selected.lon}&hourly=sea_level_height_msl&timezone=auto&forecast_days=2`
+    fetch(url).then(r => r.json()).then(d => {
+      if (cancelled) return
+      const t = d?.hourly?.time, v = d?.hourly?.sea_level_height_msl
+      if (!Array.isArray(t) || !Array.isArray(v)) { setTides(null); return }
+      const res = extractTides(t, v)
+      if (!res || res.amplitude < 0.4 || res.events.length === 0) { setTides(null); return } // pas de marée notable
+      setTides({ events: res.events, offset: typeof d.utc_offset_seconds === 'number' ? d.utc_offset_seconds : 0 })
+    }).catch(() => { if (!cancelled) setTides(null) })
     return () => { cancelled = true }
   }, [selected?.id, selected?.lat, selected?.lon])
 
@@ -1283,6 +1331,18 @@ export default function Home() {
                       {localInfo.sunrise && <> · 🌅 {hhmm(localInfo.sunrise)} 🌇 {hhmm(localInfo.sunset)}</>}
                     </div>
                   )}
+                  {tides && (() => {
+                    const nowLocal = (nowMs || Date.now()) + tides.offset * 1000
+                    const next = tides.events.filter(e => e.msLocal >= nowLocal - 1800000).slice(0, 3)
+                    if (next.length === 0) return null
+                    return (
+                      <div className="idmeta">
+                        🌊 {next.map((e, i) => (
+                          <span key={i}>{i > 0 && <span className="dim"> · </span>}{e.type === 'haute' ? '⬆' : '⬇'} {e.type} {e.label}</span>
+                        ))}
+                      </div>
+                    )
+                  })()}
                   {bd && (
                     <div className="bday">
                       {bd.days === 0
