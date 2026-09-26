@@ -42,5 +42,9 @@ quelles villes, qui poste sur le canal Telegram.]
 
 ## Décisions structurantes
 
-[à créer au premier besoin — ex. choix d'hébergement, ajout de widgets,
-gestion des secrets.]
+— **Marée : Open-Meteo Marine est inadapté au Bassin d'Arcachon** (constat du
+  2026-09-27, à rejouer au shell). Grille ~0,08° : la cellule servie pour
+  Gujan est au large (44.625, -1.208), pleines mers ~75 min trop tôt vs la
+  jetée d'Eyrac ; en `cell_selection=nearest` → que des `null`. Source
+  cible : SHOM (Arcachon-Eyrac + correction Gujan), accès/licence à sourcer.
+  Détail et plan : `reference/maree-gujan-choix-source.md`.

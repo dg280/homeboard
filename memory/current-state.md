@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-06-21
+Dernière mise à jour : 2026-09-27
 
 ---
 
@@ -37,6 +37,13 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
 1. **Sync** : créer un canal Telegram DÉDIÉ + bot admin → `TELEGRAM_BOARD_CHAT_ID`.
 2. **Don** : compte Ko-fi → `NEXT_PUBLIC_KOFI_URL`.
 3. Ménage : dépingler le message test laissé dans le chat famille (cf. pulse).
+
+## Widget marée Gujan (ticket 2026-06-26) — entamé, non livré
+- Nuit du 2026-09-27 (sans shell) : source évaluée, plan écrit dans
+  `reference/maree-gujan-choix-source.md`. Aucun code modifié, build non lancé.
+- Constat : la ligne 🌊 déjà en prod (Open-Meteo Marine) est ~75 min en avance
+  pour le Bassin. Prochaine étape : session de jour avec shell (sourcer le SHOM,
+  route `/api/tide` + widget, `npm run build`, pulse).
 
 ## À venir / déféré
 - **A2b distance** « de toi » (géoloc + notion « chez moi ») — déféré.
