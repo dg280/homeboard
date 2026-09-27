@@ -208,6 +208,43 @@ zéro secret.
 - [ ] **Pulse** au core citant 260927-01 et 260927-02 (sobre : « port du Bassin
   d'Arcachon »).
 
+## 8. Exécution partielle — 2026-09-27 (jour, sans shell) — ticket 260927-02
+
+Choix de Didier appliqué : **suit le proche** (pas de bandeau fixe Gujan, aucune
+ville en dur). Code écrit **sans build** (pas de shell) : `npm run build` reste
+à lancer avant tout « fait ».
+
+Fait :
+- `src/app/TideBassin.tsx` (nouveau) : `isInBassinArcachon(lat, lon)` (boîte
+  lat 44,55→44,80 / lon −1,30→−0,99, **posée de tête, à valider sur carte** ;
+  témoin Gujan 44,638 / −1,068 dedans) + bloc « Marée · Bassin d'Arcachon ».
+  Interrupteur `NEXT_PUBLIC_SHOM_VIGNETTE` : vide (défaut) → **lien** vers
+  `maree.shom.fr/harbor/ARCACHON_EYRAC` ; `1` → vignette SHOM dans une `iframe`
+  `srcDoc` isolée (`sandbox`), qui charge le script SHOM tel quel (logo et lien
+  SHOM intacts).
+- `src/app/page.tsx` : le bloc s'affiche sous la carte d'identité quand le proche
+  choisi est dans la boîte ; la ligne 🌊 Open-Meteo est **masquée** dans la boîte
+  (elle y donne des heures ~75 min trop tôt). Hors Bassin : comportement inchangé.
+- `.env.example` : `NEXT_PUBLIC_SHOM_VIGNETTE` documentée.
+
+Constaté (WebFetch, résumés à rejouer en `curl`) : l'URL de la vignette est bien
+un script qui écrit une `iframe` par `document.write()` ; la page portail dit
+seulement « Insérer gratuitement une vignette … dans votre site Internet » ; les
+**conditions d'utilisation détaillées restent illisibles** (`maree.shom.fr/vignette`
+est rendue en JavaScript) → vignette laissée éteinte par défaut.
+
+Reste à faire (session avec shell + navigateur) :
+- [ ] `npm run build` vert ; page qui rend avec un proche à Gujan (lien visible)
+  et avec un proche hors Bassin (aucun bloc, ligne 🌊 inchangée).
+- [ ] Lire les conditions de `maree.shom.fr/vignette` (usage avec dons Ko-fi,
+  crédit) ; si un contrat est exigé → stop, retour à Didier.
+- [ ] Valider la boîte sur carte ; tester `NEXT_PUBLIC_SHOM_VIGNETTE=1` en local :
+  la vignette s'affiche-t-elle dans l'`iframe` `srcDoc` sandboxée (sinon retirer
+  `sandbox` ou passer à l'URL d'`iframe` interne) ? hauteur 300 px à ajuster.
+- [ ] Recette : mêmes heures que `maree.shom.fr` sur 3 jours ; lisible à distance.
+- [ ] Autres côtes (Manche, Bretagne…) : il faudra la liste officielle des ports
+  SHOM — hors de ce ticket, rien de codé.
+
 Hors périmètre du plan : l'API payante. Elle ne se réouvre que si Didier veut
 un style libre ou la donnée brute *et* accepte la dépense (prix à demander au
 SHOM — démarche que seul Didier peut faire).

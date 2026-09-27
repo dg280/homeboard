@@ -55,4 +55,6 @@ quelles villes, qui poste sur le canal Telegram.]
   SHOM** : la référence du Bassin est Arcachon (Jetée d'Eyrac) ; le +10-15 min
   vient de mareespeche, non sourcé SHOM — ne pas le coder comme officiel. Le
   widget suit le proche choisi (260927-02). Conditions d'utilisation de la
-  vignette : à lire avant mise en prod.
+  vignette : à lire avant mise en prod. Côté code (2026-09-27, non buildé) :
+  `TideBassin.tsx`, boîte du Bassin approximative, vignette éteinte par défaut
+  (`NEXT_PUBLIC_SHOM_VIGNETTE`), ligne 🌊 Open-Meteo masquée dans le Bassin.

@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-09-27 (marée : accès SHOM sourcé)
+Dernière mise à jour : 2026-09-27 (marée : code écrit, build à lancer)
 
 ---
 
@@ -50,9 +50,14 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
   sans clé, insérable dans un site (heures, hauteurs, coefficient) ; API SPM
   **payante** (clé boutique, prix non public). Gujan n'est **pas** un port SHOM :
   on affiche Arcachon-Eyrac, sans décalage inventé. Retenu : la vignette gratuite.
-- Reste à faire (session avec shell, plan §7) : rejouer en `curl`, lire les
-  conditions d'utilisation de la vignette, composant iframe, traiter la ligne 🌊
-  fausse, `npm run build`, pulse. Aucune dépense engagée.
+- **Code écrit le 2026-09-27 (jour, sans shell, ticket 260927-02, build NON lancé)** :
+  `src/app/TideBassin.tsx` + branchement dans `page.tsx` — quand le proche choisi
+  est dans le Bassin (boîte approximative, à valider sur carte), bloc « Marée »
+  (lien officiel SHOM par défaut ; vignette derrière `NEXT_PUBLIC_SHOM_VIGNETTE=1`)
+  et ligne 🌊 Open-Meteo masquée. Hors Bassin : inchangé. Détail : §8 de la fiche.
+- Reste à faire (session avec shell, fiche §8) : `npm run build`, rendu réel,
+  lire les conditions d'utilisation de la vignette (illisibles par WebFetch),
+  valider la boîte sur carte, tester la vignette, pulse. Aucune dépense engagée.
 
 ## À venir / déféré
 - **A2b distance** « de toi » (géoloc + notion « chez moi ») — déféré.

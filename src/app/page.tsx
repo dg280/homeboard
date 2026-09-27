@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import QRCode from 'qrcode'
 import { isNameDayToday } from './namedays'
+import TideBassin, { isInBassinArcachon } from './TideBassin'
 
 
 // ── Helpers météo ────────────────────────────────────────────────────────────
@@ -462,6 +463,9 @@ export default function Home() {
   // des terres, et amplitude négligeable en Méditerranée → on n'affiche rien.
   useEffect(() => {
     if (!selected) { setTides(null); return }
+    // Bassin d'Arcachon : la grille Open-Meteo sert une cellule au large (~75 min
+    // trop tôt) → on masque, le bloc TideBassin (SHOM) prend le relais
+    if (isInBassinArcachon(selected.lat, selected.lon)) { setTides(null); return }
     let cancelled = false
     const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${selected.lat}&longitude=${selected.lon}&hourly=sea_level_height_msl&timezone=auto&forecast_days=2`
     fetch(url).then(r => r.json()).then(d => {
@@ -1364,6 +1368,9 @@ export default function Home() {
               </div>
             )
           })()}
+
+          {/* Marée officielle (SHOM) quand le proche choisi est dans le Bassin d'Arcachon */}
+          {isInBassinArcachon(selected.lat, selected.lon) && <TideBassin />}
 
           {/* Comment s'habiller */}
           <div className="box" style={{ maxWidth: 900, margin: '0 auto 14px' }}>
