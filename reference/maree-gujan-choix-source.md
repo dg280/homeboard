@@ -6,6 +6,12 @@ mesures ci-dessous viennent de `WebFetch`, qui résume la page par un petit
 modèle. À **rejouer avec `curl`** en session de jour avant de s'appuyer
 dessus. Aucun code de l'app n'a été modifié.
 
+**Mise à jour 2026-09-27 (jour, WebSearch/WebFetch, toujours sans shell)** :
+Didier a tranché « source officielle » (décision 260927-01). L'accès et la
+licence SHOM sont maintenant sourcés : voir **§6** (faits) et **§7** (plan
+révisé, qui remplace le §5). Les mesures de ce fichier restent à rejouer en
+`curl`.
+
 ## 1. Ce qui existe déjà dans le code
 
 Une ligne « 🌊 ⬆ haute HH:MM · ⬇ basse HH:MM » est déjà rendue dans la carte
@@ -68,11 +74,12 @@ ligne si la cellule est à plus de ~0,1° du point demandé (Gujan : ~0,14°).
 |---|---|---|
 | Open-Meteo Marine + décalage calibré | Repli, ±15 min | Phase variable avec le coef., amplitude fausse, pas de coefficient |
 | Scraping mareespeche / horaire-maree | Écartée | Rendu JS, casse sans prévenir, licence à sourcer |
-| **SHOM (port de référence Arcachon-Eyrac + correction Gujan)** | **Recommandée** | Accès / licence / clé **à sourcer** (source officielle) |
+| **SHOM — vignette gratuite, port Arcachon-Eyrac** | **Retenue (2026-09-27)** | Bloc visuel non restylable, pas de données brutes ; Gujan n'est pas un port SHOM (§6) |
+| SHOM — API payante (SPM, clé à acheter) | Écartée sauf accord de Didier | Dépense ; prix non public ; hors de proportion pour un tableau familial (§6) |
 | API à clé (StormGlass, WorldTides…) | Possible | Compte + clé à créer par Didier ; quota et tarif **à sourcer** |
 | Prédiction harmonique locale (constantes SHOM) | Idéale à terme | Constantes officielles à obtenir ; zéro réseau, zéro quota |
 
-## 5. Plan de mise en œuvre (session de jour, avec shell)
+## 5. Plan initial (nuit du 2026-09-27) — remplacé par le §7
 
 - [ ] Sourcer l'accès SHOM (licence de réutilisation, clé éventuelle,
   correction Gujan vs Eyrac) ; sinon retomber sur l'option API à clé.
@@ -91,3 +98,116 @@ ligne si la cellule est à plus de ~0,1° du point demandé (Gujan : ~0,14°).
 
 Décision produit encore ouverte : widget **suivi du proche sélectionné**
 (cohérent avec le pivot villes → proches) ou **bandeau fixe Gujan**.
+*(Tranchée depuis : « suit le proche », décision 260927-02.)*
+
+## 6. Accès et licence SHOM — vérifié le 2026-09-27
+
+Méthode : `WebSearch` + `WebFetch` sur les pages officielles du SHOM. Les
+pages `maree.shom.fr` sont rendues en JavaScript, donc illisibles par cet
+outil ; les valeurs chiffrées et les citations viennent d'un résumé par petit
+modèle → **à rejouer en `curl` / navigateur** avant mise en prod. Ce qui n'a
+pas pu être lu est marqué « à sourcer ».
+
+### 6.1 Deux voies officielles, l'une gratuite, l'autre payante
+
+**Voie gratuite — vignette « Horaires de marées » du SHOM.**
+- Le portail officiel dit : « Insérer gratuitement une vignette des horaires
+  des marées du Shom dans votre site Internet », et « Il vous est possible
+  d'intégrer dans vos publications (papiers et/ou numériques), les horaires des
+  marées du Shom ». Deux formats : petite (24 h) et grande (7 jours + courbe).
+  Source : <https://diffusion.shom.fr/marees/portail-horaires-des-marees.html>.
+- Pas de compte, pas de clé. Le code d'intégration est généré sur
+  <https://maree.shom.fr/vignette> (page JS : code exact **non lu**).
+- URL de la petite vignette, port de référence du Bassin :
+  `https://services.data.shom.fr/hdm/vignette/petite/ARCACHON_EYRAC?locale=fr`.
+  Le résumé de cette réponse (27/09/2026, heure légale) : PM 06:33 · 4,29 m ·
+  coef 95 ; BM 12:46 · 0,53 m ; PM 18:50 · 4,50 m · coef 97 ; BM 28/09 01:07 ·
+  0,48 m. Heures, hauteurs **et coefficient** y sont donc.
+- Nature technique : un script qui écrit une `iframe` par `document.write()`,
+  logo SHOM + lien « Tous les horaires de marées du Shom » inclus. C'est un
+  bloc visuel : pas de JSON, pas de style libre.
+- Réserve du SHOM : la hauteur réelle peut différer de la prédiction de
+  « plusieurs dizaines de centimètres » selon la pression atmosphérique
+  (prédictions calculées à ~1013 hPa).
+- **À sourcer** : les conditions d'utilisation détaillées de la vignette
+  (page `maree.shom.fr/vignette`) et le statut d'un site qui accepte des dons
+  (mode Ko-fi) au regard de « gratuit ». Ne pas prétendre à un droit sans les
+  avoir lues.
+
+**Voie payante — API « Services de Prédiction de Marée » (SPM / SAPM).**
+- Accès « only available to authenticated users with a valid subscription
+  key », clé **achetée sur la boutique du SHOM** ; TLS 1.2 minimum. Prédictions
+  1700-2100, 20 ans max par requête, formats **TXT et XML** (pas de JSON),
+  heures et hauteurs PM/BM, coefficient pour les ports métropolitains de la
+  Manche et de l'Atlantique. Sources :
+  <https://services.data.shom.fr/support/en/services/spm>,
+  <https://diffusion.shom.fr/services-numeriques/api-shom.html>.
+- Prix : **non public** sur les pages lues. Indications : « à partir de
+  65,74 € HT/unité » (Marées à la carte) ; abonnement « conseillé » au-delà de
+  4 601,74 € HT (hors droits de reproduction). Source :
+  <https://diffusion.shom.fr/marees/horaires-des-marees/marees_a_la_carte.html>.
+- Licence : numéro d'autorisation de reproduction dans « Mes commandes » ;
+  prédictions officielles « pour l'année courante et la suivante » ; mention
+  de reproduction obligatoire (texte rapporté par un résumé de recherche :
+  « non vérifiée par le Shom et réalisée sous la seule responsabilité de
+  l'éditeur » — **à relire dans la source**) ; « dans certains cas
+  particuliers », un contrat de licence peut être exigé.
+- Conclusion : achat + contrat éventuel = dépense et démarche tierce, donc
+  décision de Didier ; disproportionné pour ce tableau.
+
+**Gratuit aussi, mais autre chose** : REFMAR (marégraphe Arcachon-Eyrac,
+<https://refmar.shom.fr/donnees/190>) = *observations* du niveau réel, accès
+gratuit avec nom + e-mail. Pas des prédictions ; utile plus tard pour afficher
+la surcote (réel − prédit), pas pour ce ticket.
+
+### 6.2 Gujan-Mestras n'est pas un port SHOM
+
+- Ports rattachés à Arcachon (Jetée d'Eyrac) listés par maree.info (source
+  annoncée « SHOM, mise à jour 06/2016 ») : Le Grand Piquey, Cap Ferret, Pilat
+  Plage. **Ni Gujan-Mestras, ni Larros, ni Meyran.** Source :
+  <https://maree.info/136/ports-rattaches> (site tiers, à confirmer sur
+  `maree.shom.fr`).
+- Un identifiant `GUJAN_MESTRAS` deviné dans l'URL de la vignette renvoie une
+  page d'erreur (non concluant : l'identifiant réel est peut-être différent).
+- Conséquence : la marée « officielle » de Gujan **est celle d'Arcachon-Eyrac**.
+  Le décalage de +10-15 min vient de la demande initiale (mareespeche) et n'est
+  **pas sourcé SHOM** : ne pas l'afficher comme officiel, ne pas le coder en
+  dur.
+
+## 7. Plan révisé (session de jour, avec shell) — remplace le §5
+
+Choix retenu : **vignette officielle gratuite, port Arcachon-Eyrac**, affichée
+chez un proche dont la position est dans le Bassin. Zéro dépense, zéro clé,
+zéro secret.
+
+- [ ] **Rejouer en `curl`** l'URL de la vignette : relever le code exact
+  (`src` de l'iframe interne), les mentions SHOM, comparer les valeurs à
+  `https://maree.shom.fr/harbor/ARCACHON_EYRAC` dans un navigateur.
+- [ ] **Lire les conditions d'utilisation** de `maree.shom.fr/vignette`
+  (navigateur) : usage sur un site avec dons, obligations de crédit. Si un
+  contrat est exigé → stop, retour à Didier.
+- [ ] **Composant** `TideVignette` (client) : `document.write()` ne marche pas
+  dans le DOM de React → charger le script dans une `iframe` (`srcDoc`) ou
+  pointer l'`iframe` interne si son URL est stable. À tester au build. Garder
+  intact le logo et le lien SHOM. Pas de CSP dans `next.config.js` (aucun
+  blocage d'iframe attendu).
+- [ ] **Affichage** : sous la carte d'identité du proche sélectionné, si sa
+  position est dans le Bassin (boîte lat/lon à fixer avec Gujan 44.638 / -1.068
+  comme témoin, à valider sur carte — pas de coordonnées de mémoire). Légende :
+  « Port de référence : Arcachon (Jetée d'Eyrac). Le fond du Bassin est en
+  léger décalage. » — sans chiffre tant qu'il n'est pas sourcé.
+  Extension à d'autres côtes plus tard : il faudra la liste officielle des
+  ports SHOM (source à trouver).
+- [ ] **Ligne 🌊 existante** (Open-Meteo, `page.tsx` ~460-476 et ~1334-1345) :
+  ~75 min trop tôt dans le Bassin. La masquer quand la cellule servie est à
+  plus de ~0,1° du point, et la retirer pour le Bassin dès que la vignette est
+  en place (deux marées différentes à l'écran = confusion).
+- [ ] **Recette** : la vignette et `maree.shom.fr` donnent les mêmes heures sur
+  3 jours ; `npm run build` vert ; page qui rend ; lisible à distance (écran
+  mural).
+- [ ] **Pulse** au core citant 260927-01 et 260927-02 (sobre : « port du Bassin
+  d'Arcachon »).
+
+Hors périmètre du plan : l'API payante. Elle ne se réouvre que si Didier veut
+un style libre ou la donnée brute *et* accepte la dépense (prix à demander au
+SHOM — démarche que seul Didier peut faire).

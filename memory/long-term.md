@@ -45,6 +45,14 @@ quelles villes, qui poste sur le canal Telegram.]
 — **Marée : Open-Meteo Marine est inadapté au Bassin d'Arcachon** (constat du
   2026-09-27, à rejouer au shell). Grille ~0,08° : la cellule servie pour
   Gujan est au large (44.625, -1.208), pleines mers ~75 min trop tôt vs la
-  jetée d'Eyrac ; en `cell_selection=nearest` → que des `null`. Source
-  cible : SHOM (Arcachon-Eyrac + correction Gujan), accès/licence à sourcer.
-  Détail et plan : `reference/maree-gujan-choix-source.md`.
+  jetée d'Eyrac ; en `cell_selection=nearest` → que des `null`. Détail et
+  plan : `reference/maree-gujan-choix-source.md`.
+— **Marée : source officielle SHOM, via la vignette gratuite** (décision de
+  Didier 260927-01 du 2026-09-27 ; accès sourcé le même jour, §6 de la fiche).
+  La vignette « horaires de marées » du SHOM est gratuite et insérable dans un
+  site (heures, hauteurs, coefficient) ; l'API SPM est payante (clé boutique,
+  prix non public) et n'est pas retenue. **Gujan-Mestras n'est pas un port
+  SHOM** : la référence du Bassin est Arcachon (Jetée d'Eyrac) ; le +10-15 min
+  vient de mareespeche, non sourcé SHOM — ne pas le coder comme officiel. Le
+  widget suit le proche choisi (260927-02). Conditions d'utilisation de la
+  vignette : à lire avant mise en prod.

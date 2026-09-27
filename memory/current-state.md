@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-09-27
+Dernière mise à jour : 2026-09-27 (marée : accès SHOM sourcé)
 
 ---
 
@@ -38,12 +38,21 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
 2. **Don** : compte Ko-fi → `NEXT_PUBLIC_KOFI_URL`.
 3. Ménage : dépingler le message test laissé dans le chat famille (cf. pulse).
 
-## Widget marée Gujan (ticket 2026-06-26) — entamé, non livré
+## Widget marée Gujan (ticket 2026-06-26) — source tranchée, code non livré
 - Nuit du 2026-09-27 (sans shell) : source évaluée, plan écrit dans
   `reference/maree-gujan-choix-source.md`. Aucun code modifié, build non lancé.
 - Constat : la ligne 🌊 déjà en prod (Open-Meteo Marine) est ~75 min en avance
-  pour le Bassin. Prochaine étape : session de jour avec shell (sourcer le SHOM,
-  route `/api/tide` + widget, `npm run build`, pulse).
+  pour le Bassin.
+- **Décisions de Didier (2026-09-27)** : source **officielle** (260927-01) ;
+  le widget **suit le proche choisi** (260927-02).
+- **Accès/licence SHOM sourcés le 2026-09-27** (jour, sans shell ; détail §6 de
+  la fiche de référence) : vignette « horaires de marées » du SHOM **gratuite**,
+  sans clé, insérable dans un site (heures, hauteurs, coefficient) ; API SPM
+  **payante** (clé boutique, prix non public). Gujan n'est **pas** un port SHOM :
+  on affiche Arcachon-Eyrac, sans décalage inventé. Retenu : la vignette gratuite.
+- Reste à faire (session avec shell, plan §7) : rejouer en `curl`, lire les
+  conditions d'utilisation de la vignette, composant iframe, traiter la ligne 🌊
+  fausse, `npm run build`, pulse. Aucune dépense engagée.
 
 ## À venir / déféré
 - **A2b distance** « de toi » (géoloc + notion « chez moi ») — déféré.
