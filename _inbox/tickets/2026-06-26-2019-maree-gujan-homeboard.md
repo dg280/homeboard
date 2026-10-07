@@ -53,3 +53,6 @@ source: "conversation utilisateur 2026-06-26 ~20:15"
 
 Le dashboard homeboard affiche la marée de Gujan-Mestras (prochaine
 pleine/basse mer) en local, build vert, et un pulse a été remonté au core.
+
+## Résolution 2026-10-07 : repris par les tickets 260927-01 et 260927-02
+Source tranchée par Didier le 2026-09-27 (officielle SHOM, suit le proche) ; le code (`TideBassin.tsx`, branchement `page.tsx`) est écrit. Le travail restant (build, rendu, licence vignette, boîte du Bassin) est porté par les deux tickets de décision, rouverts.
