@@ -2,7 +2,7 @@
 from: core
 to: homeboard
 created: 2026-06-26T20:19:15+0200
-status: in_progress
+status: resolved
 priority: normal
 task: "Ajouter un widget marée (Gujan-Mestras / Bassin d'Arcachon) au dashboard homeboard"
 context: "Demande de Didier en conversation core 2026-06-26. homeboard affiche déjà la météo multi-villes (dont Gujan-Mestras) ; la marée est l'info domestique manquante. Réf horaires : mareespeche.com / horaire-maree.fr, calés jetée d'Eyrac (Arcachon) avec ~10-15 min de décalage sur les ports de Gujan."
