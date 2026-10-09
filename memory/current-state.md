@@ -55,6 +55,9 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
   est dans le Bassin (boîte approximative, à valider sur carte), bloc « Marée »
   (lien officiel SHOM par défaut ; vignette derrière `NEXT_PUBLIC_SHOM_VIGNETTE=1`)
   et ligne 🌊 Open-Meteo masquée. Hors Bassin : inchangé. Détail : §8 de la fiche.
+- 2026-10-10 (nuit, sans shell) : page portail SHOM relue, aucune condition d'usage
+  de la vignette dedans (renvoie à Mentions légales / CGV / Répertoire et licences) ;
+  vignette laissée éteinte. Toujours bloqué sur shell + navigateur.
 - Reste à faire (session avec shell, fiche §8) : `npm run build`, rendu réel,
   lire les conditions d'utilisation de la vignette (illisibles par WebFetch),
   valider la boîte sur carte, tester la vignette, pulse. Aucune dépense engagée.
