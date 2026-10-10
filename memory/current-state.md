@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-09-27 (marée : code écrit, build à lancer)
+Dernière mise à jour : 2026-10-10 (widget Linge, commit local, non poussé)
 
 ---
 
@@ -74,3 +74,9 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
 - Sync = **Telegram** (réutilise le bot, gratuit, sans nouveau compte) plutôt
   que GitHub (hack) ou Ethereum testnet (mauvais outil : éphémère, public, RGPD).
 - Domaine = **satellite applicatif** (code + brain), distinct de meteomar/van/boatmon.
+
+## 2026-10-10 — Widget « Linge » (Gujan-Mestras 44.64/-1.07)
+- `src/lib/linge.ts` (fonction pure `computeLinge`, règle identique au tableau de bord
+  local du Mac : ne pas la modifier d'un côté seulement), `src/app/LingeWidget.tsx`,
+  intégré dans `page.tsx` au-dessus de la marée. Test : `npm run test:linge`.
+- Commit local, NON poussé, NON déployé : mise en ligne à valider par Didier.

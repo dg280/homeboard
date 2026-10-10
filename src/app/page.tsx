@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import QRCode from 'qrcode'
 import { isNameDayToday } from './namedays'
+import LingeWidget from './LingeWidget'
 import TideBassin, { isInBassinArcachon } from './TideBassin'
 
 
@@ -1368,6 +1369,9 @@ export default function Home() {
               </div>
             )
           })()}
+
+          {/* Linge : rentrer / étendre, maison de Gujan-Mestras */}
+          <LingeWidget />
 
           {/* Marée officielle (SHOM) quand le proche choisi est dans le Bassin d'Arcachon */}
           {isInBassinArcachon(selected.lat, selected.lon) && <TideBassin />}
