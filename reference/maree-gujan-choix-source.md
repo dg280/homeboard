@@ -216,7 +216,7 @@ ville en dur). Code écrit **sans build** (pas de shell) : `npm run build` reste
 
 Fait :
 - `src/app/TideBassin.tsx` (nouveau) : `isInBassinArcachon(lat, lon)` (boîte
-  lat 44,55→44,80 / lon −1,30→−0,99, **posée de tête, à valider sur carte** ;
+  lat 44,55→44,80 / lon −1,30→−0,95, **posée de tête, à valider sur carte** ;
   témoin Gujan 44,638 / −1,068 dedans) + bloc « Marée · Bassin d'Arcachon ».
   Interrupteur `NEXT_PUBLIC_SHOM_VIGNETTE` : vide (défaut) → **lien** vers
   `maree.shom.fr/harbor/ARCACHON_EYRAC` ; `1` → vignette SHOM dans une `iframe`
@@ -248,3 +248,22 @@ Reste à faire (session avec shell + navigateur) :
 Hors périmètre du plan : l'API payante. Elle ne se réouvre que si Didier veut
 un style libre ou la donnée brute *et* accepte la dépense (prix à demander au
 SHOM — démarche que seul Didier peut faire).
+
+### Clôture — 2026-10-11 (session avec shell, décisions 261011-03 / 261011-10)
+
+- `npm run build` vert ; `npm run test:linge` vert (8 assertions). `/` répond 200 en
+  `next dev`. L'app lit les proches en localStorage : le bloc n'apparaît qu'avec un
+  proche choisi dans la boîte, non rejoué en navigateur (pas de navigateur ici) ;
+  sans proche choisi, aucun bloc (comportement inchangé).
+- Conditions SHOM lues (texte de `maree.shom.fr/vignette`, bundle de l'app) :
+  « Créez et insérez gratuitement sur votre propre site Internet » ; réutilisation
+  soumise (loi 78-753) à : pas d'altération, sens non dénaturé, **source et date de
+  mise à jour mentionnées**. Aucun contrat, aucun crédit chiffré. La vignette
+  (24 h, en direct) garde logo et lien SHOM intacts dans l'iframe. Source citée en
+  légende. => vignette **allumée par défaut** (`NEXT_PUBLIC_SHOM_VIGNETTE=0` la coupe).
+- Boîte Bassin vérifiée par coordonnées : dedans Gujan, Arcachon, Cap Ferret,
+  Pyla, Andernos, Arès, Lanton, Audenge, Le Teich ; dehors Bordeaux, Lacanau,
+  Biscarrosse, Mimizan, Cestas, Nailloux, Paimpol, Nice. Borne est élargie de
+  −0,99 à −0,95 pour inclure Biganos/Mios.
+- Reste (Didier) : coup d'œil navigateur sur la vignette après déploiement.
+  Non poussé, non déployé.

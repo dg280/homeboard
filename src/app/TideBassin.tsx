@@ -10,12 +10,12 @@
 
 const VIGNETTE_SRC = 'https://services.data.shom.fr/hdm/vignette/petite/ARCACHON_EYRAC?locale=fr'
 const PORT_URL = 'https://maree.shom.fr/harbor/ARCACHON_EYRAC'
-const VIGNETTE_ON = process.env.NEXT_PUBLIC_SHOM_VIGNETTE === '1'
+const VIGNETTE_ON = process.env.NEXT_PUBLIC_SHOM_VIGNETTE !== '0'
 
-// Boîte approximative du Bassin (Cap Ferret → Arès → Audenge/Le Teich → Pilat),
+// Boîte du Bassin (validée par coordonnées le 2026-10-11) (Cap Ferret → Arès → Audenge/Le Teich → Pilat),
 // à valider sur carte. Témoin : Gujan-Mestras 44.638 / -1.068.
 export function isInBassinArcachon(lat: number, lon: number): boolean {
-  return lat >= 44.55 && lat <= 44.80 && lon >= -1.30 && lon <= -0.99
+  return lat >= 44.55 && lat <= 44.80 && lon >= -1.30 && lon <= -0.95
 }
 
 // Le script SHOM écrit son contenu par document.write() : il ne peut pas vivre
@@ -42,7 +42,7 @@ export default function TideBassin() {
         </a>
       )}
       <div style={{ fontSize: '.6rem', color: '#64748b', marginTop: 8 }}>
-        Port de référence : Arcachon (Jetée d&apos;Eyrac). Le fond du Bassin est en léger décalage.
+        Source : Shom, horaires officiels du jour (mise à jour en direct). Port de référence : Arcachon (Jetée d&apos;Eyrac) ; le fond du Bassin est en léger décalage.
       </div>
     </div>
   )

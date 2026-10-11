@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-10-10 (widget Linge, commit local, non poussé)
+Dernière mise à jour : 2026-10-11 (widget marée Gujan terminé, commit local, non poussé)
 
 ---
 
@@ -80,3 +80,8 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
   local du Mac : ne pas la modifier d'un côté seulement), `src/app/LingeWidget.tsx`,
   intégré dans `page.tsx` au-dessus de la marée. Test : `npm run test:linge`.
 - Commit local, NON poussé, NON déployé : mise en ligne à valider par Didier.
+- **2026-10-11 (session avec shell) : widget marée Gujan TERMINÉ.** Build et
+  `test:linge` verts ; conditions SHOM lues (gratuit, source + date à mentionner) →
+  vignette allumée par défaut (`NEXT_PUBLIC_SHOM_VIGNETTE=0` pour couper) ; boîte
+  Bassin validée par coordonnées (borne est −0,95). Non poussé, non déployé ;
+  rendu navigateur à voir par Didier après déploiement. Détail : fiche §8.
