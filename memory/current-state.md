@@ -2,7 +2,7 @@
 
 Top of mind du domaine `homeboard`.
 
-Dernière mise à jour : 2026-10-11 (widget marée Gujan terminé, commit local, non poussé)
+Dernière mise à jour : 2026-11-01 (consolidation memory-keeper) — précédente : 2026-10-11 (widget marée Gujan terminé, commit local, non poussé)
 
 ---
 
@@ -38,29 +38,17 @@ ceux que tu aimes »). Pivot clé : **villes → proches**.
 2. **Don** : compte Ko-fi → `NEXT_PUBLIC_KOFI_URL`.
 3. Ménage : dépingler le message test laissé dans le chat famille (cf. pulse).
 
-## Widget marée Gujan (ticket 2026-06-26) — source tranchée, code non livré
-- Nuit du 2026-09-27 (sans shell) : source évaluée, plan écrit dans
-  `reference/maree-gujan-choix-source.md`. Aucun code modifié, build non lancé.
-- Constat : la ligne 🌊 déjà en prod (Open-Meteo Marine) est ~75 min en avance
-  pour le Bassin.
-- **Décisions de Didier (2026-09-27)** : source **officielle** (260927-01) ;
-  le widget **suit le proche choisi** (260927-02).
-- **Accès/licence SHOM sourcés le 2026-09-27** (jour, sans shell ; détail §6 de
-  la fiche de référence) : vignette « horaires de marées » du SHOM **gratuite**,
-  sans clé, insérable dans un site (heures, hauteurs, coefficient) ; API SPM
-  **payante** (clé boutique, prix non public). Gujan n'est **pas** un port SHOM :
-  on affiche Arcachon-Eyrac, sans décalage inventé. Retenu : la vignette gratuite.
-- **Code écrit le 2026-09-27 (jour, sans shell, ticket 260927-02, build NON lancé)** :
-  `src/app/TideBassin.tsx` + branchement dans `page.tsx` — quand le proche choisi
-  est dans le Bassin (boîte approximative, à valider sur carte), bloc « Marée »
-  (lien officiel SHOM par défaut ; vignette derrière `NEXT_PUBLIC_SHOM_VIGNETTE=1`)
-  et ligne 🌊 Open-Meteo masquée. Hors Bassin : inchangé. Détail : §8 de la fiche.
+## Widget marée Gujan (ticket 2026-06-26) — terminé le 2026-10-11, non déployé
+- Historique du 2026-09-27 (choix de source, décisions 260927-01/02, accès SHOM,
+  premier code) : migré le 2026-11-01 dans `long-term.md` § Historique — widget
+  marée. Plan : `reference/maree-gujan-choix-source.md`.
 - 2026-10-10 (nuit, sans shell) : page portail SHOM relue, aucune condition d'usage
   de la vignette dedans (renvoie à Mentions légales / CGV / Répertoire et licences) ;
   vignette laissée éteinte. Toujours bloqué sur shell + navigateur.
-- Reste à faire (session avec shell, fiche §8) : `npm run build`, rendu réel,
+- ~~Reste à faire (session avec shell, fiche §8) : `npm run build`, rendu réel,
   lire les conditions d'utilisation de la vignette (illisibles par WebFetch),
-  valider la boîte sur carte, tester la vignette, pulse. Aucune dépense engagée.
+  valider la boîte sur carte, tester la vignette, pulse.~~ (caduc 2026-10-11 :
+  build vert, conditions lues, boîte validée — cf. ci-dessous.) Aucune dépense engagée.
 
 ## À venir / déféré
 - **A2b distance** « de toi » (géoloc + notion « chez moi ») — déféré.
