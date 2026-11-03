@@ -1,0 +1,7 @@
+# services.tsv — ce que le satellite homeboard fait tourner.
+# Colonnes et règles : l'en-tête de core/services.tsv (fusionné par
+# bin/brain_services.py). Identifiants préfixés « homeboard- » ; colonne details
+# relative à ce satellite. Jamais de secret ici.
+#
+# id	groupe	nom	role	machine	sonde	ouvrir	tailnet	details	label	ports	icone
+homeboard-app	enligne	Homeboard	Le tableau de bord familial : météo des proches, messages.	Vercel	http:https://homeboard-omega.vercel.app/	https://homeboard-omega.vercel.app/	-	CLAUDE.md	-	-	🏠
